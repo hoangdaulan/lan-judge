@@ -4,11 +4,11 @@ Hệ thống cho phòng máy: giáo viên tạo đề, phiên thi, bộ test; si
 
 Gồm ba thành phần chạy bằng Docker Compose trên một máy chủ trong LAN:
 
-- **api** (Go): REST + WebSocket + giao diện web, cổng `8080` (HTTP) và `8443` (HTTPS).
-- **worker** (Go): biên dịch và chạy bài trong sandbox (không mạng, giới hạn thời gian/bộ nhớ).
+- **api** (Java 17 / Spring Boot): REST + WebSocket + giao diện web, cổng `8080` (HTTP) và `8443` (HTTPS).
+- **worker** (Java 17): biên dịch và chạy bài trong sandbox (không mạng, giới hạn thời gian/bộ nhớ).
 - **postgres** (PostgreSQL 16): dữ liệu và hàng đợi chấm.
 
-Mã nguồn bài nộp và file test nằm trong thư mục `backend/data` trên máy chủ.
+Mã nguồn bài nộp và file test nằm trong thư mục `backend/data` trên máy chủ. Cách build Java, cấu trúc backend và kiểm thử tương thích xem [chuyển đổi Java](backend/docs/JAVA-MIGRATION.md).
 
 ## Mục lục
 
@@ -30,7 +30,7 @@ Máy chủ (máy của giáo viên hoặc một máy trong phòng), chạy một
 - **Windows 10/11**: Docker Desktop + WSL2 (Ubuntu).
 - **macOS** (Apple Silicon hoặc Intel): Docker Desktop.
 
-Cần thêm `git` và `make` (cách cài cho từng hệ ở mục 2.1). Không bắt buộc: Node.js 20+ (chỉ khi sửa giao diện), Go 1.26 (chỉ khi chạy công cụ dòng lệnh như `wsprobe`, `loadtest`).
+Cần thêm `git` và `make` (cách cài cho từng hệ ở mục 2.1). Không bắt buộc: Node.js 20+ (chỉ khi sửa giao diện), JDK 17 (chỉ khi phát triển backend hoặc chạy `wsprobe`, `loadtest`; Maven Wrapper đã có sẵn).
 
 Máy sinh viên/giáo viên: Chrome, Edge hoặc Firefox bản mới, cùng mạng LAN với máy chủ. Hệ điều hành nào cũng được.
 
@@ -356,7 +356,7 @@ Chạy trong `backend/`:
 | Sao lưu DB và `data/` vào `backups/<thời-điểm>/` | `make backup` |
 | Kiểm tra bản sao lưu (không đụng dữ liệu thật) | `scripts/restore.sh backups/<thời-điểm> --verify` |
 | Khôi phục bản sao lưu (ghi đè DB và `data/`) | `scripts/restore.sh backups/<thời-điểm> --yes` |
-| Chạy unit test | `make test` (cần Go) |
+| Chạy unit test | `make test` (cần JDK 17) |
 | Kiểm tra sandbox chấm bài | `make test-sandbox` |
 
 Sửa giao diện (thư mục `web/src` ở gốc repo): chạy `npm install` rồi `npm run build` ở gốc repo, sau đó `make up` để build lại api (giao diện được nhúng vào binary).

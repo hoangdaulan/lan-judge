@@ -16,6 +16,7 @@ backups/
 
 # Dependencies, local builds, browser-test artifacts and temporary files.
 node_modules/
+target/
 bin/
 artifacts/
 tmp/

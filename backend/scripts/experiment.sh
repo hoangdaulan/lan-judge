@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Phase 14 experiments against the local Compose stack. Each run reconfigures
-# the worker, samples CPU/RAM with `docker stats`, runs cmd/loadtest and
+# the worker, samples CPU/RAM with `docker stats`, runs bin/loadtest and
 # appends one JSON line (load result + resource peaks) to $OUT.
 #
 #   scripts/experiment.sh [workers|pickup|delivery|restart|all]
@@ -20,7 +20,7 @@ set -a
 set +a
 export LOADTEST_DB="postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@127.0.0.1:${DB_PORT:-5433}/$POSTGRES_DB?sslmode=disable"
 mkdir -p "$(dirname "$OUT")" bin
-go build -o bin/loadtest ./cmd/loadtest
+sh scripts/build-java.sh
 
 # worker CONCURRENCY LISTEN [REPLICAS]: restart the worker(s) with a setting
 worker() {

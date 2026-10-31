@@ -1,3 +1,5 @@
+> Ghi chép đợt thiết kế giao diện trước khi chuyển backend sang Java. Hiện Java phục vụ cùng bundle/asset; xem [JAVA-MIGRATION.md](JAVA-MIGRATION.md) cho lệnh build hiện tại.
+
 # Full-screen LAN Judge frontend
 
 ## Existing application and preserved behavior

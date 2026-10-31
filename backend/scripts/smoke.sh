@@ -76,7 +76,9 @@ check() { # check DESC SHELL_TEST...
 	if "$@"; then ok "$desc"; else bad "$desc"; fi
 }
 
-iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+iso() { python3 -c 'from datetime import datetime, timezone; import sys; print(datetime.fromtimestamp(int(sys.argv[1]), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"; }
+lower() { python3 -c 'import sys; print(sys.argv[1].lower())' "$1"; }
+upper() { python3 -c 'import sys; print(sys.argv[1].upper())' "$1"; }
 
 login() { # login CODE PASSWORD -> prints access token
 	req POST /auth/login "{\"code\":\"$1\",\"password\":\"$2\"}"
@@ -117,8 +119,8 @@ section_auth() {
 	req POST /auth/login "{\"code\":\"$TEACHER_CODE\"}"
 	expect "missing password" 400
 
-	req POST /auth/login "{\"code\":\"${TEACHER_CODE,,}\",\"password\":\"$TEACHER_PASSWORD\"}"
-	expect "login lowercase code, role from DB" 200 'd["user"]["role"] == "teacher" and d["user"]["code"] == "'"${TEACHER_CODE^^}"'"'
+	req POST /auth/login "{\"code\":\"$(lower "$TEACHER_CODE")\",\"password\":\"$TEACHER_PASSWORD\"}"
+	expect "login lowercase code, role from DB" 200 'd["user"]["role"] == "teacher" and d["user"]["code"] == "'"$(upper "$TEACHER_CODE")"'"'
 	local at rt rt2
 	at=$(jget 'd["access_token"]')
 	rt=$(jget 'd["refresh_token"]')
@@ -171,7 +173,7 @@ section_students() {
 	local tt
 	tt=$(teacher_token)
 	local a="SMK${RUN}A" b="SMK${RUN}B" c="SMK${RUN}C"
-	req POST /students "{\"code\":\" ${a,,} \",\"fullname\":\"Nguyen   Van  A\",\"date_of_birth\":\"5/9/2004\"}" "$tt"
+	req POST /students "{\"code\":\" $(lower "$a") \",\"fullname\":\"Nguyen   Van  A\",\"date_of_birth\":\"5/9/2004\"}" "$tt"
 	expect "create student normalizes" 201 'd["code"] == "'"$a"'" and d["fullname"] == "Nguyen Van A" and d["date_of_birth"] == "2004-09-05"'
 	req POST /students "{\"code\":\"$a\",\"fullname\":\"X\",\"date_of_birth\":\"$SV_DOB\"}" "$tt"
 	expect "duplicate student code" 409
@@ -182,7 +184,7 @@ section_students() {
 	req POST /students "{\"code\":\"${c}N\",\"fullname\":\"X\"}" "$tt"
 	expect "student without date of birth" 400
 
-	printf 'full_name,code,date_of_birth\nPham D,%s,01/01/2004\nNo Name,%s,\nDup,%s,01/01/2004\n' "${b}X" "${c}X" "${b,,}x" >"$TMP/bad.csv"
+	printf 'full_name,code,date_of_birth\nPham D,%s,01/01/2004\nNo Name,%s,\nDup,%s,01/01/2004\n' "${b}X" "${c}X" "$(lower "$b")x" >"$TMP/bad.csv"
 	upload /students/import "$TMP/bad.csv" "$tt"
 	expect "bad CSV rejected with row errors" 400 '[r["line"] for r in d["row_errors"]] == [3, 4] and d["row_errors"][0]["error"] == "date_of_birth is required"'
 	req GET "/students?query=${b}X" "" "$tt"
@@ -195,7 +197,7 @@ section_students() {
 	req GET "/students?query=SMK${RUN}&pageSize=2" "" "$tt"
 	expect "list search + paging" 200 'd["totalPages"] >= 2 and len(d["data"]) == 2 and d["pageSize"] == 2 and d["page"] == 1'
 	req GET "/students?query=$TEACHER_CODE" "" "$tt"
-	expect "teachers never listed as students" 200 'all(s["code"] != "'"${TEACHER_CODE^^}"'" for s in d["data"])'
+	expect "teachers never listed as students" 200 'all(s["code"] != "'"$(upper "$TEACHER_CODE")"'" for s in d["data"])'
 
 	req POST /auth/login "{\"code\":\"$b\",\"password\":\"$SV_PASS\"}"
 	expect "imported student logs in with date of birth" 200
@@ -621,8 +623,8 @@ handshake() {
 section_ws() {
 	echo "== ws (WebSocket; needs the worker with the sandbox)"
 	local probe=./bin/wsprobe
-	[[ -x $probe ]] || go build -o "$probe" ./cmd/wsprobe || {
-		bad "build cmd/wsprobe"
+	[[ -x $probe ]] || sh scripts/build-java.sh || {
+		bad "build Java wsprobe"
 		return
 	}
 	local tt s1 a="SMK${RUN}W1" b="SMK${RUN}W2"

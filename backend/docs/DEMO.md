@@ -25,9 +25,9 @@ Màn hình nên mở sẵn (giao diện web: `https://<IP>:8443/`, chấp nhận
 0. Trình duyệt GV: đăng nhập → Đề thi → mở phiên → tab "Bảng trực tiếp". Trình duyệt SV (máy khác, hoặc tab ẩn danh): đăng nhập `DEMO01`/`01012004` → Phiên thi → "Vào làm bài". Các bước 2–7 bên dưới làm được hoàn toàn trên giao diện web (nộp bằng ô soạn code; thông báo ở tab "Thông báo"; chấm lại bằng nút "Quét test & chấm lại" ở trang đề).
 1. Swagger UI: `http://<IP>:8080/swagger/index.html` (đăng nhập GV, Authorize).
 2. Terminal GV — bảng trực tiếp qua WebSocket:
-   `WSPROBE_PASSWORD='<mật khẩu>' go run ./cmd/wsprobe -base http://<IP>:8080 -code GV01 -session <session_id> -duration 30m`
+   `WSPROBE_PASSWORD='<mật khẩu>' ./bin/wsprobe -base http://<IP>:8080 -code GV01 -session <session_id> -duration 30m`
 3. Terminal SV (máy khác trong LAN nếu có):
-   `go run ./cmd/wsprobe -base http://<IP>:8080 -code DEMO01 -password 01012004 -session <session_id> -duration 30m`
+   `./bin/wsprobe -base http://<IP>:8080 -code DEMO01 -password 01012004 -session <session_id> -duration 30m`
 
 ## Các bước
 
@@ -42,13 +42,13 @@ Màn hình nên mở sẵn (giao diện web: `https://<IP>:8443/`, chấp nhận
 | 7 | Nộp B lần nữa, khi đang `judging` thì `docker compose kill worker`, rồi `docker compose up -d worker` | Bài không mất: sau khi lease hết hạn worker phục hồi job và chấm lại (`attempt_count = 2`) — dùng `WORKER_LEASE=15s` cho demo |
 | 8 | Rút mạng / tắt Wi-Fi máy SV vài giây rồi nối lại | Kết nối WS đóng (ping/pong); client nối lại + `GET /submissions/{id}` lấy trạng thái hiện tại |
 | 8b | SV chia sẻ toàn màn hình (trang làm bài mới mở khóa); GV tab "Màn hình SV" → "Xem màn hình". SV bấm "Dừng chia sẻ" trên thanh của trình duyệt | GV thấy màn hình SV trực tiếp (WebRTC ngang hàng, server chỉ chuyển tín hiệu qua WebSocket); SV tắt → trang SV khóa lại, GV thấy "đã tắt" |
-| 9 | `go run ./cmd/loadtest -base http://<IP>:8080 -students 50 -tests 15 -mode ws` | 50 SV đăng nhập + nộp cùng lúc: 50/50 AC, không lỗi HTTP; bảng GV nhảy số |
+| 9 | `./bin/loadtest -base http://<IP>:8080 -students 50 -tests 15 -mode ws` | 50 SV đăng nhập + nộp cùng lúc: 50/50 AC, không lỗi HTTP; bảng GV nhảy số |
 | 10 | Mở `docs/results/RESULTS.md` | Số liệu thật: 1 → 8 slot, polling vs NOTIFY, WebSocket vs polling, restart giữa chừng |
 
 ## Câu hỏi hay gặp khi bảo vệ (gợi ý chỗ xem code)
 
-- *Sao không nộp bài qua WebSocket?* Upload cần giới hạn kích thước (413), mã lỗi rõ ràng, xác nhận "đã nhận" sau COMMIT → REST (`internal/submission/handler.go`).
-- *Hai worker có chấm trùng một bài không?* Không: `FOR UPDATE SKIP LOCKED` + lease token; ghi kết quả kiểm tra lại token và version (`internal/judge/repository.go`, test `TestTwoWorkersJudgeEachJobExactlyOnce`).
-- *Nộp và bấm kết thúc cùng lúc?* Cả hai khóa cùng dòng `exam_participants`; thao tác commit trước thắng (`internal/submission/repository.go`).
-- *Client bỏ lỡ sự kiện thì sao?* WebSocket chỉ báo; REST là nguồn sự thật; mất `LISTEN` → server gửi `resync` (`internal/realtime`).
-- *Bài SV có đọc được đáp án không?* Chạy bằng uid riêng, `./data` chmod 0750, không capability, không mạng (`internal/sandbox`, `make test-sandbox`).
+- *Sao không nộp bài qua WebSocket?* Upload cần giới hạn kích thước (413), mã lỗi rõ ràng, xác nhận "đã nhận" sau COMMIT → REST (`src/main/java/vn/lanlab/Api.java`).
+- *Hai worker có chấm trùng một bài không?* Không: `FOR UPDATE SKIP LOCKED` + lease token; ghi kết quả kiểm tra lại token và version (`src/main/java/vn/lanlab/JudgeQueue.java`, test `concurrentClaimsNeverTakeTheSameJob`).
+- *Nộp và bấm kết thúc cùng lúc?* Cả hai khóa cùng dòng `exam_participants`; thao tác commit trước thắng (`src/main/java/vn/lanlab/Submissions.java`).
+- *Client bỏ lỡ sự kiện thì sao?* WebSocket chỉ báo; REST là nguồn sự thật; mất `LISTEN` → server gửi `resync` (`src/main/java/vn/lanlab/Realtime.java`).
+- *Bài SV có đọc được đáp án không?* Chạy bằng uid riêng, `./data` chmod 0750, không capability, không mạng (`native/sandbox.c`, `make test-sandbox`).

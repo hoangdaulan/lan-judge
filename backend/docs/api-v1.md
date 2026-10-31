@@ -8,7 +8,7 @@
 - Khi chuyển vai trò giáo viên/sinh viên, thay token trong Authorize. Refresh token nhập riêng trong body của refresh/logout.
 - Import CSV: `POST /api/v1/students/import` → **Try it out** → chọn file ở trường `file`. Mẫu ở `examples/students-import.csv`.
 - Chỉnh ngày giờ trong request tạo phiên cho phù hợp lúc test; ID lấy từ response thực tế.
-- Swagger mô tả 44 thao tác REST. Worker chấm thật (g++ C++17 trong sandbox); chấm lại problem/bài nộp đã hoạt động. WebSocket `/api/v1/ws` không nằm trong Swagger (không phải REST) — xem mục "Chi tiết WebSocket"; thử bằng `go run ./cmd/wsprobe`.
+- Swagger mô tả 44 thao tác REST. Worker chấm thật (g++ C++17 trong sandbox); chấm lại problem/bài nộp đã hoạt động. WebSocket `/api/v1/ws` không nằm trong Swagger (không phải REST) — xem mục "Chi tiết WebSocket"; thử bằng `./bin/wsprobe`.
 - Đặc tả được duy trì trong `docs/swagger.json` và `docs/swagger.yaml`, nhúng vào binary bằng `docs/docs.go`. Không chạy `swag init` ghi đè khi handler chưa có annotation đầy đủ.
 - Khi sửa code/spec trong môi trường Compose, build lại API: `docker compose up -d --build --no-deps api`.
 
@@ -40,7 +40,7 @@ Ngày chốt: **21/10/2026**. Quyết định nền: `BACKEND_CONTEXT.md` mục 
 | GET | `/me` | T/S | Thông tin tài khoản hiện tại | ✅ |
 | PUT | `/me/password` | T/S | Đổi mật khẩu; xóa mọi refresh token của tài khoản | ✅ |
 
-Giáo viên đầu tiên: `cmd/seed` (không qua API).
+Giáo viên đầu tiên: `./bin/seed` (không qua API).
 
 ## 2. Sinh viên
 

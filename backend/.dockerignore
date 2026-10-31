@@ -2,6 +2,7 @@
 .claude
 .env
 bin/
+target/
 data/
 *.md
 !README.md

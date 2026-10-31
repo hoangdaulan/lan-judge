@@ -91,7 +91,7 @@ table("E4. Khởi động lại toàn bộ stack khi đang chấm", ["restart-mi
 w("""## Môi trường và giới hạn của phép đo
 
 - Một máy: Intel i5-12400F (6 nhân/12 luồng), 15 GiB RAM, Ubuntu 24.04, Docker 29.8; PostgreSQL 16, API, worker chạy bằng Docker Compose. **Không phải** laptop i3 dự kiến dùng khi thi — cần đo lại trên máy thật.
-- Client giả lập (`cmd/loadtest`) chạy **trên cùng máy**, nối qua loopback: độ trễ mạng LAN thật (Wi-Fi/switch) **không** có trong số liệu.
+- Client giả lập (`bin/loadtest`) chạy **trên cùng máy**, nối qua loopback: độ trễ mạng LAN thật (Wi-Fi/switch) **không** có trong số liệu.
 - Bài nộp là chương trình a+b nhỏ: thời gian chấm chủ yếu là biên dịch `-static`. Bài nặng hơn (TLE, nhiều test lớn) sẽ làm hàng đợi dài hơn.
 - CPU/RAM lấy mẫu bằng `docker stats` (~1 mẫu/giây); lần chạy ngắn hơn ~1,5 s có thể không bắt được đỉnh (ví dụ dòng `workers-c8` ghi 0). CPU % tính theo 1 luồng = 100 %.
 - Byte = thân request/response + ước lượng 400 byte header mỗi lượt HTTP; với WebSocket = độ dài message + 4 byte header frame. Byte và request tính cho phần **sau khi nộp** (gồm cả 50 request nộp bài).

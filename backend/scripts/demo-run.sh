@@ -13,8 +13,7 @@ API=$BASE/api/v1
 : "${TEACHER_CODE:?}" "${TEACHER_PASSWORD:?}"
 TMP=$(mktemp -d)
 trap 'kill $(jobs -p) 2>/dev/null || true; rm -rf "$TMP"' EXIT
-go build -o bin/wsprobe ./cmd/wsprobe
-go build -o bin/loadtest ./cmd/loadtest
+sh scripts/build-java.sh
 
 j() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1]))' "$1"; }
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }

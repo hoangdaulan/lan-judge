@@ -1,12 +1,12 @@
 # Giao thức socket tự thiết kế
 
-Ba giao thức dưới đây được viết trực tiếp trên socket của Go (`net`, chỉ thư viện chuẩn), không qua HTTP hay thư viện hàng đợi. Cả ba đều **bật/tắt bằng biến môi trường**; tắt hết thì hệ thống chạy như trước (worker polling PostgreSQL, thông báo chỉ qua WebSocket).
+Ba giao thức dưới đây được viết trực tiếp trên socket của Java 17 (`Socket`, `DatagramSocket`, `MulticastSocket`), không qua HTTP hay thư viện hàng đợi. Cả ba đều **bật/tắt bằng biến môi trường**; tắt hết thì hệ thống chạy như trước (worker polling PostgreSQL, thông báo chỉ qua WebSocket).
 
 | # | Giao thức | Tầng vận chuyển | Ai ↔ ai | Bật bằng | Mã nguồn |
 |---|---|---|---|---|---|
-| 1 | Phân phối job chấm | TCP, khung có độ dài | API (dispatcher) ↔ worker | `DISPATCH_ADDR`, `WORKER_DISPATCH_ADDR` | `internal/wire`, `internal/dispatch` |
-| 2 | Tìm máy chủ trong LAN | UDP broadcast | API → mọi máy; máy SV → API | `DISCOVERY_PORT` | `internal/discovery`, `cmd/lannet` |
-| 3 | Thông báo của GV | UDP multicast | API → nhóm 239.255.42.99 | `ANNOUNCE_MULTICAST_ADDR` | `internal/mcast`, `cmd/lannet` |
+| 1 | Phân phối job chấm | TCP, khung có độ dài | API (dispatcher) ↔ worker | `DISPATCH_ADDR`, `WORKER_DISPATCH_ADDR` | `Wire.java`, `Dispatch.java`, `Worker.java` |
+| 2 | Tìm máy chủ trong LAN | UDP broadcast | API → mọi máy; máy SV → API | `DISCOVERY_PORT` | `Lan.java`, `ClientTools.java` |
+| 3 | Thông báo của GV | UDP multicast | API → nhóm 239.255.42.99 | `ANNOUNCE_MULTICAST_ADDR` | `Lan.java` |
 
 ---
 
@@ -37,7 +37,7 @@ TCP là luồng byte, không có ranh giới message. Mỗi message được đ�
 
 * `length` = 1 (byte type) + độ dài payload; payload rỗng ⇒ `length = 1`.
 * `length = 0` hoặc `> 4 MiB` ⇒ lỗi, đóng kết nối (chặn khung giả làm cấp phát bộ nhớ lớn).
-* Bên đọc dùng `io.ReadFull` cho header rồi cho thân, nên một message bị TCP cắt thành nhiều segment (hoặc nhiều message dính nhau) vẫn được tách đúng (`internal/wire/wire_test.go`).
+* Bên đọc dùng `DataInputStream.readFully` cho header rồi cho thân, nên một message bị TCP cắt thành nhiều segment (hoặc nhiều message dính nhau) vẫn được tách đúng (`ContractsTest.java`).
 * Mỗi khung được ghi bằng **một** lệnh `Write` dưới mutex, có write deadline 5 s.
 
 ### 1.3. Loại message
@@ -97,7 +97,7 @@ sequenceDiagram
 
 ### 1.6. Bảo mật
 
-`DISPATCH_TOKEN` là bí mật dùng chung, so sánh thời gian hằng (`crypto/subtle`). Không có token thì bất kỳ máy nào tới được cổng 7070 đều có thể giả làm worker để nhận mã nguồn và trả kết quả giả. Trong Compose mặc định cổng 7070 **không** publish ra LAN (worker tới bằng `api:7070` trên mạng nội bộ `db`).
+`DISPATCH_TOKEN` là bí mật dùng chung, so sánh thời gian hằng (`MessageDigest.isEqual`). Không có token thì bất kỳ máy nào tới được cổng 7070 đều có thể giả làm worker để nhận mã nguồn và trả kết quả giả. Trong Compose mặc định cổng 7070 **không** publish ra LAN (worker tới bằng `api:7070` trên mạng nội bộ `db`).
 
 ### 1.7. Cấu hình
 
@@ -137,8 +137,8 @@ Một đối tượng JSON trong một datagram (≤ 2 KB), luôn có `"magic":"
 ### 2.3. Dùng
 
 ```bash
-go run ./cmd/lannet discover          # gửi discover, in các máy chủ trả lời trong 2 s
-go run ./cmd/lannet watch             # nghe bản tin quảng bá định kỳ
+./bin/lannet discover          # gửi discover, in các máy chủ trả lời trong 2 s
+./bin/lannet watch             # nghe bản tin quảng bá định kỳ
 WORKER_DISPATCH_ADDR=auto ./worker    # worker tự tìm dispatcher
 ```
 
@@ -154,7 +154,7 @@ WORKER_DISPATCH_ADDR=auto ./worker    # worker tự tìm dispatcher
 
 ### 3.1. Ý tưởng
 
-Khi GV gửi thông báo, API vẫn đẩy qua WebSocket như cũ (đáng tin cậy, theo phiên) **và** gửi thêm **một** datagram tới nhóm multicast `ANNOUNCE_MULTICAST_ADDR` (vd. `239.255.42.99:9998`, dải 239/8 dành cho phạm vi tổ chức). Mọi máy đã tham gia nhóm (IGMP join qua `net.ListenMulticastUDP`) đều nhận, dù 5 hay 50 máy: máy chủ chỉ gửi một lần thay vì một lần cho mỗi kết nối. TTL mặc định 1 giữ gói trong mạng con của phòng máy.
+Khi GV gửi thông báo, API vẫn đẩy qua WebSocket như cũ (đáng tin cậy, theo phiên) **và** gửi thêm **một** datagram tới nhóm multicast `ANNOUNCE_MULTICAST_ADDR` (vd. `239.255.42.99:9998`, dải 239/8 dành cho phạm vi tổ chức). Mọi máy đã tham gia nhóm (IGMP join qua `MulticastSocket.joinGroup`) đều nhận, dù 5 hay 50 máy: máy chủ chỉ gửi một lần thay vì một lần cho mỗi kết nối. TTL mặc định 1 giữ gói trong mạng con của phòng máy.
 
 ### 3.2. Định dạng
 
@@ -166,7 +166,7 @@ Khi GV gửi thông báo, API vẫn đẩy qua WebSocket như cũ (đáng tin c�
 Gửi kiểu "best effort": lỗi gửi multicast chỉ ghi log, không làm hỏng việc tạo thông báo. `seq` liên tục cho phép bên nhận phát hiện gói bị mất (`lannet` in `missed N datagram(s)`); bản đầy đủ luôn lấy lại được qua REST/WebSocket.
 
 ```bash
-go run ./cmd/lannet announcements -group 239.255.42.99:9998 [-iface wlan0]
+./bin/lannet announcements -group 239.255.42.99:9998 [-iface wlan0]
 ```
 
 ---
@@ -184,10 +184,6 @@ Khi đó cổng 7070 nằm trên mạng của máy chủ: **đặt `DISPATCH_TOK
 
 ## 5. Kiểm thử
 
-| Test | Kiểm tra |
-|---|---|
-| `internal/wire` | đóng/mở khung, khung rỗng/quá lớn/cụt, đọc từng byte một |
-| `internal/dispatch` (unit) | 2 worker nhận 10 job qua TCP, kết quả do dispatcher ghi; dispatcher chết giữa chừng ⇒ worker tự ghi DB; HELLO sai bị từ chối; JOB không ACK ⇒ trả về hàng đợi |
-| `internal/dispatch` (integration, PostgreSQL thật) | 2 worker TCP + 1 worker polling cùng hàng đợi: 30 bài, mỗi job chấm đúng một lần (`attempt_count = 1`) |
-| `internal/discovery` | tính địa chỉ broadcast, bỏ datagram lạ, thăm dò nhận được trả lời |
-| `internal/mcast` | từ chối địa chỉ không phải multicast; gửi/nhận qua loopback multicast (tự bỏ qua khi tường lửa chặn) |
+Chạy `make build` để tạo JAR và các lệnh `bin/*`. `make test` chạy kiểm thử hợp đồng JSON, framing, JWT, upload và quét bộ test. `make test-integration` chạy với PostgreSQL, tạo database thử nghiệm riêng rồi xóa khi xong. `make test-sandbox` chạy trong Linux container với cùng capability của worker.
+
+Mã nguồn Java nằm trong `src/main/java/vn/lanlab/`: `Wire`, `Dispatch`, `Worker`, `Lan`. Các định dạng message và biến môi trường ở tài liệu này được giữ nguyên khi chuyển từ Go sang Java.

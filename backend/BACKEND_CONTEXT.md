@@ -1,3 +1,5 @@
+> Backend hiện dùng Java 17 / Spring Boot. Hợp đồng nghiệp vụ và schema trong tài liệu này vẫn áp dụng; các tham chiếu Go là lịch sử thiết kế. Mã nguồn và lệnh chạy hiện tại xem [JAVA-MIGRATION.md](docs/JAVA-MIGRATION.md).
+
 # Bối cảnh và các quyết định backend đã chốt
 
 Ngày cập nhật: **21/10/2026**.
