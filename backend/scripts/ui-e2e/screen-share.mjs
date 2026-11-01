@@ -42,11 +42,12 @@ const ses = await call('POST', `/exams/${exam.id}/sessions`, tt, {
   name: 'E2E', starts_at: new Date(now - 60e3).toISOString(), ends_at: new Date(now + 30 * 60e3).toISOString(),
 });
 
-const browser = await launch({ args: [
-  '--ignore-certificate-errors', '--use-fake-ui-for-media-stream',
-  '--auto-select-desktop-capture-source=Entire screen', '--use-fake-device-for-media-stream',
-] });
+let browser;
 try {
+  browser = await launch({ args: [
+    '--ignore-certificate-errors', '--use-fake-ui-for-media-stream',
+    '--auto-select-desktop-capture-source=Entire screen', '--use-fake-device-for-media-stream',
+  ] });
   const uiLogin = async (page, c, p) => {
     await page.goto(UI + '/');
     await page.waitFor('document.querySelector("#login-form")');
@@ -104,7 +105,7 @@ try {
   failed++;
   console.log('  \x1b[31mFAIL\x1b[0m', e.message);
 } finally {
-  browser.close();
+  browser?.close();
   await call('DELETE', `/sessions/${ses.id}`, tt).catch((e) => console.log('cleanup:', e.message));
   await call('DELETE', `/exams/${exam.id}`, tt).catch((e) => console.log('cleanup:', e.message));
   // Students cannot be deleted over the API; remove the temporary one directly.

@@ -2,22 +2,42 @@
 // headless Chrome and evaluates JavaScript in pages. Used by the browser
 // end-to-end checks in this folder.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-export async function launch({ chrome = process.env.CHROME || 'google-chrome', port = 9333, args = [] } = {}) {
+function chromeExecutable() {
+  if (process.env.CHROME) return process.env.CHROME;
+  const candidates = process.platform === 'darwin'
+    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+    : process.platform === 'win32'
+      ? [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA]
+        .filter(Boolean).map((dir) => join(dir, 'Google', 'Chrome', 'Application', 'chrome.exe'))
+      : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
+  return candidates.find((path) => existsSync(path)) || 'google-chrome';
+}
+
+export async function launch({ chrome = chromeExecutable(), port = 9333, args = [] } = {}) {
   const profile = mkdtempSync(join(tmpdir(), 'lanjudge-e2e-'));
   const proc = spawn(chrome, [
     '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
     '--no-first-run', '--no-default-browser-check', ...args, 'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let launchError;
+  proc.on('error', (error) => { launchError = error; });
+  // Drain stderr so a verbose Chrome cannot block on a full pipe.
+  proc.stderr.resume();
   let ver;
   for (let i = 0; i < 50 && !ver; i++) {
     await new Promise((r) => setTimeout(r, 200));
+    if (launchError || proc.exitCode !== null) break;
     ver = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json()).catch(() => null);
   }
-  if (!ver) throw new Error('chrome did not start');
+  if (!ver) {
+    proc.kill();
+    rmSync(profile, { recursive: true, force: true });
+    throw new Error(`Chrome did not start (${chrome}). Install Chrome in the same OS as Node.js or set CHROME to its executable path.${launchError ? ' ' + launchError.message : ''}`);
+  }
   const browser = await connect(ver.webSocketDebuggerUrl);
   browser.close = () => { proc.kill(); setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500); };
   return browser;

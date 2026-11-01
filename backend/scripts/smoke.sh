@@ -80,8 +80,12 @@ iso() { python3 -c 'from datetime import datetime, timezone; import sys; print(d
 lower() { python3 -c 'import sys; print(sys.argv[1].lower())' "$1"; }
 upper() { python3 -c 'import sys; print(sys.argv[1].upper())' "$1"; }
 
+login_body() { # CODE PASSWORD [ROLE] -> JSON, including passwords with quotes/backslashes
+	python3 -c 'import json,sys; d=dict(code=sys.argv[1], password=sys.argv[2]); d.update(role=sys.argv[3]) if len(sys.argv) > 3 else None; print(json.dumps(d))' "$@"
+}
+
 login() { # login CODE PASSWORD -> prints access token
-	req POST /auth/login "{\"code\":\"$1\",\"password\":\"$2\"}"
+	req POST /auth/login "$(login_body "$1" "$2")"
 	jget 'd["access_token"]'
 }
 
@@ -109,7 +113,7 @@ make_exam() {
 
 section_auth() {
 	echo "== auth"
-	req POST /auth/login "{\"role\":\"teacher\",\"code\":\"$TEACHER_CODE\",\"password\":\"$TEACHER_PASSWORD\"}"
+	req POST /auth/login "$(login_body "$TEACHER_CODE" "$TEACHER_PASSWORD" teacher)"
 	expect "login with legacy role field rejected" 400 '"role" in d["error"]'
 	req POST /auth/login "{\"code\":\"$TEACHER_CODE\",\"password\":\"wrong-$RUN\"}"
 	expect "wrong password" 401
@@ -119,7 +123,7 @@ section_auth() {
 	req POST /auth/login "{\"code\":\"$TEACHER_CODE\"}"
 	expect "missing password" 400
 
-	req POST /auth/login "{\"code\":\"$(lower "$TEACHER_CODE")\",\"password\":\"$TEACHER_PASSWORD\"}"
+	req POST /auth/login "$(login_body "$(lower "$TEACHER_CODE")" "$TEACHER_PASSWORD")"
 	expect "login lowercase code, role from DB" 200 'd["user"]["role"] == "teacher" and d["user"]["code"] == "'"$(upper "$TEACHER_CODE")"'"'
 	local at rt rt2
 	at=$(jget 'd["access_token"]')

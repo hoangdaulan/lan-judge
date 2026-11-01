@@ -12,14 +12,19 @@ API=$BASE/api/v1
 : "${TEACHER_CODE:?set TEACHER_CODE}" "${TEACHER_PASSWORD:?set TEACHER_PASSWORD}"
 DATA=${DATA_HOST_DIR:-./data}
 
+for tool in curl python3; do
+	command -v "$tool" >/dev/null || { echo "Install $tool before running the demo (see README)." >&2; exit 1; }
+done
+
 j() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1]))' "$1"; }
 post() { curl -sf -X POST "$API$1" -H "Authorization: Bearer $TT" -H 'Content-Type: application/json' -d "$2"; }
 
+credentials=$(python3 -c 'import json,sys; print(json.dumps(dict(code=sys.argv[1], password=sys.argv[2])))' "$TEACHER_CODE" "$TEACHER_PASSWORD")
 TT=$(curl -sf -X POST "$API/auth/login" -H 'Content-Type: application/json' \
-	-d "{\"code\":\"$TEACHER_CODE\",\"password\":\"$TEACHER_PASSWORD\"}" | j 'd["access_token"]')
+	-d "$credentials" | j 'd["access_token"]')
 EXAM=$(post /exams '{"title":"Demo Lap trinh mang","description":"Bai thi demo"}' | j 'd["id"]')
 now=$(date -u +%s)
-iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+iso() { python3 -c 'from datetime import datetime, timezone; import sys; print(datetime.fromtimestamp(int(sys.argv[1]), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"; }
 SESSION=$(post "/exams/$EXAM/sessions" "{\"name\":\"Ca demo\",\"starts_at\":\"$(iso $((now - 60)))\",\"ends_at\":\"$(iso $((now + 7200)))\"}" | j 'd["id"]')
 
 PA=$(post "/exams/$EXAM/problems" '{"code":"A","title":"Tong hai so","statement":"Doc hai so nguyen a, b (|a|,|b| <= 10^12). In a+b.","time_limit_ms":1000,"memory_limit_mb":256}')

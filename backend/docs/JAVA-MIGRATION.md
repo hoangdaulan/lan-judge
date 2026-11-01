@@ -48,8 +48,10 @@ Giữ g++ Debian bookworm, C++17, `-O2 -pipe -static -DONLINE_JUDGE`, compile 10
 make test
 make test-integration  # PostgreSQL từ .env; tạo và xóa database thử nghiệm riêng
 make test-sandbox      # Docker Linux, đúng capability của worker
-make smoke            # stack đang chạy; credentials từ .smoke.env
+SMOKE_TEACHER_CODE=GV01 SMOKE_TEACHER_PASSWORD='<mật khẩu>' make smoke
 ```
+
+Windows chạy các lệnh trong Ubuntu WSL2; macOS/Linux dùng Terminal. `make test` mặc định bỏ qua `DatabaseTest` và `SandboxTest`, vì vậy cần hai lệnh riêng ở trên để kiểm tra DB và sandbox. Smoke test cần stack đã migrate/seed, `curl`, `python3` và JDK 17; giữ lại dữ liệu thử. Hướng dẫn cài công cụ và kết quả mong đợi xem [README — Kiểm thử tự động](../../README.md#52-kiểm-thử-tự-động).
 
 Có thể truyền database thử nghiệm trực tiếp:
 

@@ -1,13 +1,8 @@
 // Real Chrome, isolated API fixtures. These are never production judge results.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { launch } from "./cdp.mjs";
 import { startFixtures } from "./fixture-server.mjs";
-const chrome =
-  process.env.CHROME ||
-  (existsSync("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-    ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    : "google-chrome");
 const server = await startFixtures();
 let browser,
   checks = 0;
@@ -57,7 +52,7 @@ const code =
   '#include <iostream>\n#include <unordered_map>\nusing namespace std;\n\nint main() {\n    ios::sync_with_stdio(false);\n    cin.tie(nullptr);\n\n    int n, k;\n    cin >> n >> k;\n    unordered_map<int, int> seen;\n\n    for (int i = 1; i <= n; ++i) {\n        int x; cin >> x;\n        if (seen.count(k - x)) {\n            cout << seen[k - x] << " " << i;\n            return 0;\n        }\n        seen[x] = i;\n    }\n    cout << -1;\n    return 0;\n}';
 mkdirSync("artifacts/ui", { recursive: true });
 try {
-  browser = await launch({ chrome, port: 9337 });
+  browser = await launch({ port: 9337 });
   browser.on((m) => {
     if (m.method === "Runtime.exceptionThrown")
       exceptions.push(
