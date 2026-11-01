@@ -101,6 +101,8 @@ function App() {
           <dd>Nộp mã nguồn trong trình soạn thảo</dd>
           <dt>Tab / Shift + Tab</dt>
           <dd>Thụt / giảm thụt dòng</dd>
+          <dt>Ngoặc và dấu nháy</dt>
+          <dd>Tự đóng cặp; bọc phần mã đang chọn. Enter tự thụt lề.</dd>
           <dt>Escape trong editor</dt>
           <dd>Chuyển đến thanh công cụ</dd>
           <dt>← / → trên tab</dt>

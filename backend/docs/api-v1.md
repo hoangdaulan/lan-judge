@@ -9,7 +9,7 @@
 - Import CSV: `POST /api/v1/students/import` → **Try it out** → chọn file ở trường `file`. Mẫu ở `examples/students-import.csv`.
 - Chỉnh ngày giờ trong request tạo phiên cho phù hợp lúc test; ID lấy từ response thực tế.
 - Swagger mô tả 44 thao tác REST. Worker chấm thật (g++ C++17 trong sandbox); chấm lại problem/bài nộp đã hoạt động. WebSocket `/api/v1/ws` không nằm trong Swagger (không phải REST) — xem mục "Chi tiết WebSocket"; thử bằng `./bin/wsprobe`.
-- Đặc tả được duy trì trong `docs/swagger.json` và `docs/swagger.yaml`, nhúng vào binary bằng `docs/docs.go`. Không chạy `swag init` ghi đè khi handler chưa có annotation đầy đủ.
+- Đặc tả được duy trì trong `docs/swagger.json` và đóng gói vào JAR bằng cấu hình resources của Maven trong `pom.xml`. `ContractsTest` kiểm tra mọi thao tác REST trong đặc tả đều có route Java tương ứng.
 - Khi sửa code/spec trong môi trường Compose, build lại API: `docker compose up -d --build --no-deps api`.
 
 Ngày chốt: **21/10/2026**. Quyết định nền: `BACKEND_CONTEXT.md` mục 17.

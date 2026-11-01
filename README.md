@@ -359,7 +359,11 @@ Chạy trong `backend/`:
 | Chạy unit test | `make test` (cần JDK 17) |
 | Kiểm tra sandbox chấm bài | `make test-sandbox` |
 
-Sửa giao diện (thư mục `web/src` ở gốc repo): chạy `npm install` rồi `npm run build` ở gốc repo, sau đó `make up` để build lại api (giao diện được nhúng vào binary).
+Sửa giao diện (thư mục `web/src` ở gốc repo): chạy `npm install` rồi `npm run build` ở gốc repo, sau đó chạy `docker compose up -d --build --no-deps api` trong `backend/` để đóng gói bundle mới vào JAR và cập nhật API.
+
+`npm run dev` theo dõi mã React, phục vụ giao diện tại `http://127.0.0.1:5173` và chuyển tiếp REST/WebSocket tới API tại `http://127.0.0.1:8080`. Biến `BACKEND_URL` đổi địa chỉ API; `PORT` đổi cổng giao diện.
+
+`npm run preview:ui` mở giao diện bằng dữ liệu giả lập riêng (`SV001 / demo`, `GV001 / demo`). `npm run test:ui` chạy kiểm thử giao diện trên Chrome headless, cần Node.js 22+ và Chrome. Hai chế độ này không chạy bài C++ thật. Ảnh kiểm thử được sinh vào `artifacts/ui/` và có thể xóa sau khi xem. Script `backend/scripts/ui-e2e/screen-share.mjs` dùng để kiểm tra video WebRTC giữa hai trình duyệt với stack đang chạy; truyền `TEACHER_CODE`, `TEACHER_PASSWORD` và chạy từ `backend/`.
 
 ## 6. Xử lý sự cố
 

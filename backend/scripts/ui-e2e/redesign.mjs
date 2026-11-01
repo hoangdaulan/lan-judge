@@ -150,6 +150,146 @@ try {
     "Escape exits editor keyboard trap",
     await p.eval('document.activeElement.tagName === "BUTTON"'),
   );
+  const editorKey = async (key, code, modifiers = 0) => {
+    await p.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key,
+      code,
+      modifiers,
+      ...(key.length === 1 && !(modifiers & 6) ? { text: key } : {}),
+      ...(key === "Enter" ? { text: "\r", windowsVirtualKeyCode: 13 } : {}),
+      ...(key === "Backspace" ? { windowsVirtualKeyCode: 8 } : {}),
+    });
+    await p.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key,
+      code,
+      modifiers,
+    });
+  };
+  const selectCode = async (value, start, end = start) => {
+    await text(p, "#code", value || " ");
+    if (!value) {
+      await p.eval('document.querySelector("#code").select()');
+      await editorKey("Backspace", "Backspace");
+    }
+    await p.eval(
+      `document.querySelector('#code').setSelectionRange(${start},${end})`,
+    );
+  };
+  const editorState = () =>
+    p.eval(
+      `(() => { const t=document.querySelector('#code');return [t.value,t.selectionStart,t.selectionEnd]; })()`,
+    );
+  await selectCode("", 0);
+  await editorKey("{", "BracketLeft", 8);
+  check(
+    "Typing { inserts a pair with the caret between braces",
+    JSON.stringify(await editorState()) === JSON.stringify(["{}", 1, 1]),
+  );
+  await editorKey("Enter", "Enter");
+  check(
+    "Enter creates an indented line inside braces",
+    JSON.stringify(await editorState()) ===
+      JSON.stringify(["{\n    \n}", 6, 6]),
+  );
+  check(
+    "Auto-paired edits update the saved draft",
+    await p.eval('localStorage.getItem("lanjudge.draft.1.1")==="{\\n    \\n}"'),
+  );
+  for (const [open, close, keyCode] of [
+    ["(", ")", "Digit9"],
+    ["[", "]", "BracketLeft"],
+    ['"', '"', "Quote"],
+    ["'", "'", "Quote"],
+  ]) {
+    await selectCode("", 0);
+    await editorKey(open, keyCode);
+    check(
+      `Typing ${open} inserts its matching delimiter`,
+      JSON.stringify(await editorState()) ===
+        JSON.stringify([open + close, 1, 1]),
+    );
+    await editorKey(close, keyCode);
+    check(
+      `Typing the existing ${close} moves past it without duplication`,
+      JSON.stringify(await editorState()) ===
+        JSON.stringify([open + close, 2, 2]),
+    );
+  }
+  await selectCode("    if (ok) {}", 13);
+  await editorKey("Enter", "Enter");
+  check(
+    "Nested blocks keep the closing brace aligned",
+    JSON.stringify(await editorState()) ===
+      JSON.stringify(["    if (ok) {\n        \n    }", 22, 22]),
+  );
+  await selectCode("{}", 1);
+  await editorKey("}", "BracketRight", 8);
+  check(
+    "Closing braces are not duplicated",
+    JSON.stringify(await editorState()) === JSON.stringify(["{}", 2, 2]),
+  );
+  await selectCode("{}", 1);
+  await editorKey("Backspace", "Backspace");
+  check(
+    "Backspace removes an empty bracket pair",
+    JSON.stringify(await editorState()) === JSON.stringify(["", 0, 0]),
+  );
+  await selectCode("answer", 0, 6);
+  await editorKey("(", "Digit9", 8);
+  check(
+    "Typing an opener wraps selected code and preserves its selection",
+    JSON.stringify(await editorState()) === JSON.stringify(["(answer)", 1, 7]),
+  );
+  for (const value of [
+    "// comment ",
+    "/* comment ",
+    'const char* s = "text',
+    'auto s = R"tag(text',
+    "auto n = 1'000; // comment ",
+  ]) {
+    await selectCode(value, value.length);
+    await editorKey("{", "BracketLeft", 8);
+    check(
+      "Comments and strings keep literal brackets: " + value,
+      (await editorState())[0] === value + "{",
+    );
+  }
+  await selectCode("auto n = 1", 10);
+  await editorKey("'", "Quote");
+  await p.send("Input.insertText", { text: "000; " });
+  await editorKey("{", "BracketLeft", 8);
+  check(
+    "C++ numeric separators do not interfere with bracket completion",
+    (await editorState())[0] === "auto n = 1'000; {}",
+  );
+  await selectCode("", 0);
+  await editorKey("{", "BracketLeft", 8);
+  await p.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "z",
+    code: "KeyZ",
+    commands: ["undo"],
+  });
+  check(
+    "Undo removes an auto-inserted pair together",
+    (await editorState())[0] === "",
+  );
+  await p.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "z",
+    code: "KeyZ",
+    commands: ["redo"],
+  });
+  check("Redo restores the full pair", (await editorState())[0] === "{}");
+  await selectCode("", 0);
+  check(
+    "IME composition keeps its own keystrokes",
+    await p.eval(
+      `(() => { const t=document.querySelector('#code');const event=new KeyboardEvent('keydown',{key:'{',code:'BracketLeft',isComposing:true,bubbles:true,cancelable:true});t.dispatchEvent(event);return !event.defaultPrevented && t.value===''; })()`,
+    ),
+  );
   await text(p, "#code", code);
   await click(p, '[data-p="2"]');
   await p.waitFor(
