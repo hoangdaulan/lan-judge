@@ -168,6 +168,7 @@ public final class Exams {
           clean,
           a,
           b);
+    db.notify("session", sid);
     return publicSession(session(p, sid));
   }
 
@@ -234,6 +235,7 @@ public final class Exams {
         id,
         p.id(),
         Instant.now());
+    db.notify("session", id);
     return participant(id, p.id());
   }
 
@@ -247,6 +249,7 @@ public final class Exams {
         id,
         p.id(),
         Instant.now());
+    db.notify("session", id);
     return participant(id, p.id());
   }
 }

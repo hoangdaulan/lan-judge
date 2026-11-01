@@ -2136,7 +2136,7 @@
                     },
                     "in_sync": {
                       "type": "boolean",
-                      "description": "Cùng danh sách cặp test với DB (không so nội dung)"
+                      "description": "Tên và SHA-256 nội dung trùng bản sao bộ test đang dùng"
                     }
                   }
                 }
@@ -2239,7 +2239,7 @@
         ],
         "summary": "Nộp một file .cpp",
         "operationId": "post__api_v1_sessions_id_problems_pid_submissions",
-        "description": "Chỉ nhận đuôi .cpp, 1 byte – 64 KB. received_at do server ghi khi nhận đủ file; phải đã join phiên, chưa finish, starts_at <= received_at < ends_at, problem đã có test. Trả 202 khi submission + run + job đã commit.",
+        "description": "Chỉ nhận đuôi .cpp, 1 byte – 64 KB. received_at do server ghi khi nhận đủ file; phải đã join phiên, chưa finish, starts_at <= received_at < ends_at, problem đã có test. Cần kết nối WebSocket còn mở, xác thực hợp lệ, subscribe đúng phiên và chia sẻ màn hình (screen.state đã được server xác nhận), nếu thiếu trả 403. Trả 202 khi submission + run + job đã commit.",
         "consumes": [
           "multipart/form-data"
         ],

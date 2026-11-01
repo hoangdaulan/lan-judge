@@ -68,6 +68,19 @@ try {
   check('sharing the whole screen unlocks the room', true,
     await sv.eval('document.querySelector("#share-badge").innerText'));
 
+  console.log('== teacher changes session times while the student is inside');
+  const updateEnd = (offset) => call('PUT', `/sessions/${ses.id}`, tt, {
+    name: ses.name, starts_at: ses.starts_at, ends_at: new Date(Date.now() + offset).toISOString(),
+  });
+  await updateEnd(-1000);
+  await sv.waitFor('!document.querySelector("#finish") && document.querySelector(".room-countdown").innerText.includes("00:00")', 5000);
+  check('shortening the session updates the open workspace immediately', true);
+  await updateEnd(30 * 60e3);
+  await sv.waitFor('document.querySelector("#share-btn")', 5000);
+  await sv.eval('document.querySelector("#share-btn").click()');
+  await sv.waitFor('document.querySelector(".lock").hidden');
+  check('extending the session reopens it with screen sharing required', await sv.eval('!!document.querySelector("#finish")'));
+
   console.log('== teacher watches the student');
   const gv = await browser.newPage();
   await uiLogin(gv, TEACHER_CODE, TEACHER_PASSWORD);
@@ -81,6 +94,16 @@ try {
   const info = await gv.eval(`(() => { const v = document.querySelector('.screen-tile video');
     return v.videoWidth + 'x' + v.videoHeight + ', ' + v.getVideoPlaybackQuality().totalVideoFrames + ' frames'; })()`);
   check('teacher receives live video (WebRTC, no STUN/TURN)', true, `${info}, first frames after ${Date.now() - t0} ms`);
+
+  for (const [label, page] of [['student', sv], ['teacher', gv]]) {
+    const frames = await gv.eval('document.querySelector(".screen-tile video").getVideoPlaybackQuality().totalVideoFrames');
+    await page.eval('import("/assets/api.js").then(m=>m.refresh()).then(()=>true)');
+    await gv.waitFor(`document.querySelector(".screen-tile video")?.getVideoPlaybackQuality().totalVideoFrames > ${frames + 1}`, 10000);
+    check(`${label} token refresh keeps the existing live video`, true);
+  }
+  await sv.eval(`import('/assets/live.js').then(m=>m.send('subscribe',{session_id:${ses.id}}))`);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  check('subscribing to the same session preserves sharing and the view', await gv.eval('!!document.querySelector(".screen-tile video")?.videoWidth'));
 
   console.log('== student stops sharing');
   await sv.eval('import("/assets/screen.js").then((m) => m.stopShare())');

@@ -102,6 +102,12 @@ public final class ClientTools {
 
   private WebSocket websocket(
       String token, long session, java.util.function.Consumer<JsonNode> message) throws Exception {
+    return websocket(token, session, message, false);
+  }
+
+  private WebSocket websocket(
+      String token, long session, java.util.function.Consumer<JsonNode> message, boolean sharing)
+      throws Exception {
     var ready = new CompletableFuture<Void>();
     WebSocket socket =
         http.newWebSocketBuilder()
@@ -140,10 +146,14 @@ public final class ClientTools {
                         wsBytes.addAndGet(
                             text.toString().getBytes(StandardCharsets.UTF_8).length + 4);
                         var parsed = json.readTree(text.toString());
-                        if (parsed
-                            .path("type")
-                            .asText()
-                            .equals(session > 0 ? "subscribed" : "auth.ok")) ready.complete(null);
+                        String type = parsed.path("type").asText();
+                        if (sharing && type.equals("subscribed"))
+                          ws.sendText(json.writeValueAsString(
+                              map("type", "screen.state", "data", map("sharing", true))), true);
+                        if (type.equals(sharing ? "screen.state" : session > 0 ? "subscribed" : "auth.ok"))
+                          ready.complete(null);
+                        if (type.equals("error"))
+                          ready.completeExceptionally(new IOException(parsed.path("data").path("message").asText()));
                         message.accept(parsed);
                       } catch (Exception e) {
                         throw new CompletionException(e);
@@ -163,6 +173,7 @@ public final class ClientTools {
 
                   @Override
                   public void onError(WebSocket ws, Throwable e) {
+                    ready.completeExceptionally(e);
                     System.err.println("WebSocket: " + e.getMessage());
                   }
                 })
@@ -184,8 +195,8 @@ public final class ClientTools {
     }
     var client = new ClientTools(json, flags.getOrDefault("-base", "http://localhost:8080"));
     if (mode.equals("wsprobe")) {
-      String token =
-          client.login(
+      String token = System.getenv().getOrDefault("WSPROBE_ACCESS_TOKEN", "");
+      if (token.isEmpty()) token = client.login(
               flags.getOrDefault("-code", ""),
               flags.getOrDefault(
                   "-password", System.getenv().getOrDefault("WSPROBE_PASSWORD", "")));
@@ -193,7 +204,8 @@ public final class ClientTools {
           client.websocket(
               token,
               Long.parseLong(flags.getOrDefault("-session", "0")),
-              m -> System.out.println(Instant.now() + " " + m));
+              m -> System.out.println(Instant.now() + " " + m),
+              Boolean.parseBoolean(flags.getOrDefault("-sharing", "false")));
       try {
         Thread.sleep(Config.parseDuration(flags.getOrDefault("-duration", "30s")).toMillis());
       } finally {
@@ -307,8 +319,7 @@ public final class ClientTools {
                     loginTimes.add(ms(start));
                     request("POST", "/sessions/" + session + "/join", token, null);
                     CompletableFuture<JsonNode> done = new CompletableFuture<>();
-                    if (mode.equals("ws"))
-                      sockets.add(
+                    sockets.add(
                           websocket(
                               token,
                               session,
@@ -318,7 +329,7 @@ public final class ClientTools {
                                         .contains(
                                             m.path("data").path("result").path("status").asText()))
                                   done.complete(m.path("data"));
-                              }));
+                              }, true));
                     ready.countDown();
                     signaled = true;
                     go.await();

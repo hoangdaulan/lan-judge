@@ -63,6 +63,7 @@ public final class Realtime extends TextWebSocketHandler implements Board.Presen
     this.lan = lan;
     this.json = json;
     board.presence(this);
+    subs.screenGate(this::sharing);
     clock.scheduleWithFixedDelay(this::tick, 300, 300, TimeUnit.MILLISECONDS);
   }
 
@@ -125,6 +126,10 @@ public final class Realtime extends TextWebSocketHandler implements Board.Presen
         authenticate(c, data);
         return;
       }
+      if (!type.equals("auth") && !Instant.now().isBefore(c.principal.expires())) {
+        close(c, 4001, "token expired");
+        return;
+      }
       switch (type) {
         case "auth" -> authenticate(c, data);
         case "subscribe" -> {
@@ -132,9 +137,11 @@ public final class Realtime extends TextWebSocketHandler implements Board.Presen
           if (id < 1) throw ApiError.bad("subscribe needs session_id");
           exams.session(c.principal, id);
           long previous = c.session;
-          endViews(c, "session changed");
-          c.session = id;
-          c.sharing = false;
+          if (previous != id) {
+            endViews(c, "session changed");
+            c.session = id;
+            c.sharing = false;
+          }
           dirty.add(previous);
           dirty.add(id);
           send(c, "subscribed", map("session_id", id));
@@ -145,8 +152,18 @@ public final class Realtime extends TextWebSocketHandler implements Board.Presen
           student(c);
           subscribed(c);
           if (!data.path("sharing").isBoolean()) throw ApiError.bad("screen.state needs sharing");
-          c.sharing = data.path("sharing").asBoolean();
+          boolean sharing = data.path("sharing").asBoolean();
+          if (sharing) {
+            var session = exams.session(c.principal, c.session);
+            var participant = exams.participant(c.session, c.principal.id());
+            if (!Exams.state(session, Instant.now()).equals("running")
+                || participant == null
+                || !str(participant, "status").equals("in_progress"))
+              throw ApiError.conflict("screen sharing requires an active participation");
+          }
+          c.sharing = sharing;
           if (!c.sharing) endViews(c, "student stopped sharing");
+          send(c, "screen.state", map("session_id", c.session, "sharing", c.sharing));
           screenList(c.session);
         }
         case "screen.view" -> startView(c, data.path("student_id").asLong());
@@ -301,6 +318,14 @@ public final class Realtime extends TextWebSocketHandler implements Board.Presen
     return ids;
   }
 
+  public synchronized boolean sharing(Auth.Principal student, long session) {
+    Instant now = Instant.now();
+    return clients.values().stream()
+        .anyMatch(c -> c.principal != null && !c.principal.teacher()
+            && c.principal.id() == student.id() && c.session == session && c.sharing
+            && c.ws.isOpen() && now.isBefore(c.principal.expires()));
+  }
+
   @Override
   public synchronized void announce(Map<String, Object> announcement) {
     long session = num(announcement, "session_id");
@@ -316,6 +341,16 @@ public final class Realtime extends TextWebSocketHandler implements Board.Presen
 
   public void event(String payload) {
     String[] parts = payload.split(":", 2);
+    if (parts.length == 2 && parts[0].equals("session")) {
+      long session = Long.parseLong(parts[1]);
+      synchronized (this) {
+        for (var c : new ArrayList<>(clients.values()))
+          if (c.principal != null && c.session == session)
+            send(c, "session.updated", map("session_id", session));
+        dirty.add(session);
+      }
+      return;
+    }
     if (parts.length != 2 || !List.of("s", "p").contains(parts[0])) return;
     long id = Long.parseLong(parts[1]);
     if (id < 1) return;

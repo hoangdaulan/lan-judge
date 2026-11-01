@@ -229,12 +229,12 @@ function App() {
         ) : current === "/password" ? (
           <Password signOut={signOut} />
         ) : user.role === "teacher" ? (
-          <TeacherPage key={path} path={path} />
+          <TeacherPage key={`${user.id}:${path}`} path={path} />
         ) : current === "/sessions" || current === "/" ? (
           <Sessions />
         ) : /^\/sessions\/(\d+)(?:\/(\d+))?$/.test(current) ? (
           <Room
-            key={current}
+            key={`${user.id}:${current}`}
             ids={current.match(/^\/sessions\/(\d+)(?:\/(\d+))?$/).slice(1)}
           />
         ) : (

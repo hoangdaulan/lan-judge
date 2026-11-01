@@ -88,9 +88,14 @@ public final class JudgeQueue {
                 + " r.id=j.judge_run_id JOIN submissions s ON s.id=r.submission_id WHERE j.id=$1",
             id);
     if (ids == null) return null;
+    long problem = num(ids, "problem_id");
+    boolean legacy = Boolean.TRUE.equals(db.one(
+        "SELECT EXISTS(SELECT 1 FROM test_cases WHERE problem_id=$1 AND"
+            + " (input NOT LIKE $2 OR output NOT LIKE $2)) AS legacy",
+        problem, "problems/" + problem + "/testsets/%").get("legacy"));
     var p =
         db.need(
-            "problem", "SELECT version FROM problems WHERE id=$1 FOR SHARE", ids.get("problem_id"));
+            "problem", "SELECT version FROM problems WHERE id=$1 FOR " + (legacy ? "UPDATE" : "SHARE"), problem);
     var run =
         db.need(
             "run",
@@ -107,6 +112,7 @@ public final class JudgeQueue {
     job.putAll(ids);
     job.putAll(run);
     job.put("version", p.get("version"));
+    job.put("legacy", legacy);
     return job;
   }
 
@@ -148,6 +154,27 @@ public final class JudgeQueue {
                 if (num(st, "version") != num(st, "problem_version")
                     || str(st, "run_status").equals("obsolete")) {
                   obsolete(num(st, "run_id"));
+                  return null;
+                }
+                long problem = num(st, "problem_id");
+                Storage storage = new Storage(cfg.data());
+                boolean upgraded = false;
+                if (Boolean.TRUE.equals(st.get("legacy"))) {
+                  try {
+                    upgraded = new TestSnapshots(storage).freezeLegacy(db, problem);
+                  } catch (java.io.UncheckedIOException | ApiError e) {
+                    int attempt = (int) num(st, "attempt_count") + 1;
+                    db.update("UPDATE judge_jobs SET attempt_count=$2 WHERE id=$1", id, attempt);
+                    failLocked(id, num(st, "run_id"), attempt, "cannot publish legacy tests: " + e.getMessage());
+                    return null;
+                  }
+                }
+                if (upgraded) {
+                  // Historical mutable files have no trustworthy content snapshot.
+                  // Rejudge every submission under a new version, including this job.
+                  long version = num(db.need("problem", "UPDATE problems SET version=version+1,"
+                      + " updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING version", problem), "version");
+                  new Problems(db, new Exams(db), storage).requeue(problem, version);
                   return null;
                 }
                 Job j = new Job();

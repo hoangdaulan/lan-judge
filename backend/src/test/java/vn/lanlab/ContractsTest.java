@@ -97,6 +97,22 @@ class ContractsTest {
   }
 
   @Test
+  void snapshotRejectsFilesEditedAfterScan() throws Exception {
+    var storage = new Storage(temp);
+    var problems = new Problems(null, null, storage);
+    Path dir = storage.resolve(Problems.testDir(1));
+    Files.createDirectories(dir);
+    Files.writeString(dir.resolve("1.in"), "1 2");
+    Files.writeString(dir.resolve("1.out"), "3");
+    var scanned = problems.scan(1);
+    Files.writeString(dir.resolve("1.out"), "4");
+    assertThrows(ApiError.class, () -> new TestSnapshots(storage).publish(1, scanned));
+    try (var files = Files.list(temp.resolve("problems/1/testsets"))) {
+      assertEquals(0, files.count());
+    }
+  }
+
+  @Test
   void sourcesRemainDurableAndInsideDataRoot() throws Exception {
     var storage = new Storage(temp);
     String rel = storage.save(new byte[] {0, -1, 3}, Instant.parse("2026-10-31T20:00:00Z"));

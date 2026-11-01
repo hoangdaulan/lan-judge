@@ -123,7 +123,7 @@ try {
   check(
     "Problem-specific draft is saved",
     await p.eval(
-      `localStorage.getItem('lanjudge.draft.1.1')===${JSON.stringify(code)}`,
+      `localStorage.getItem('lanjudge.draft.2.1.1')===${JSON.stringify(code)}`,
     ),
   );
   await p.eval('document.querySelector("#code").setSelectionRange(0,0)');
@@ -190,7 +190,7 @@ try {
   );
   check(
     "Auto-paired edits update the saved draft",
-    await p.eval('localStorage.getItem("lanjudge.draft.1.1")==="{\\n    \\n}"'),
+    await p.eval('localStorage.getItem("lanjudge.draft.2.1.1")==="{\\n    \\n}"'),
   );
   for (const [open, close, keyCode] of [
     ["(", ")", "Digit9"],
@@ -461,6 +461,39 @@ try {
   );
   await shot(p, "workspace-light");
   await click(p, ".header-actions>.icon-button");
+  const privateDraft = await p.eval('document.querySelector("#code").value');
+  await p.eval('localStorage.setItem("lanjudge.draft.1.1", "UNOWNED LEGACY DRAFT");import("/assets/api.js").then(m=>m.logout())');
+  await p.waitFor('document.querySelector("#login-form")');
+  await login(p, "SV002");
+  await go(p, "#/sessions/1/1", "#code");
+  check("A different student cannot read the previous or legacy draft", await p.eval('document.querySelector("#code").value === ""'));
+  await p.waitFor('document.querySelector("#share-btn")');
+  await click(p, "#share-btn");
+  await p.waitFor('document.querySelector(".lock").hidden');
+  await text(p, "#code", "// Student B private draft");
+  await p.eval('import("/assets/api.js").then(m=>m.logout())');
+  await p.waitFor('document.querySelector("#login-form")');
+  await login(p, "SV001");
+  await go(p, "#/sessions/1/1", "#code");
+  check("Returning to the original account restores its own draft", await p.eval(`document.querySelector("#code").value === ${JSON.stringify(privateDraft)}`));
+  await p.waitFor('document.querySelector("#share-btn")');
+  await click(p, "#share-btn");
+  await p.waitFor('document.querySelector(".lock").hidden');
+  const changeEnd = async (minutes) => {
+    const response = await fetch(server.url + "/api/v1/sessions/1", {
+      method: "PUT", headers: { Authorization: "Bearer teacher", "Content-Type": "application/json" },
+      body: JSON.stringify({ ends_at: new Date(Date.now() + minutes * 60000).toISOString() }),
+    });
+    assert.ok(response.ok);
+  };
+  await changeEnd(-1);
+  await p.waitFor('document.querySelector("#send").disabled && !document.querySelector("#finish")');
+  check("Teacher shortening the session immediately disables submissions", await p.eval('document.querySelector(".room-countdown").innerText.includes("00:00")'));
+  await changeEnd(120);
+  await p.waitFor('document.querySelector("#share-btn")');
+  await click(p, "#share-btn");
+  await p.waitFor('document.querySelector(".lock").hidden');
+  check("Teacher extending an ended session reopens the workspace", await p.eval('!document.querySelector("#send").disabled && !document.querySelector(".room-countdown").innerText.includes("00:00")'));
   await p.eval('import("/assets/screen.js").then(m=>m.stopShare())');
   await p.waitFor('!document.querySelector(".lock").hidden');
   check("Stopping sharing relocks the exam", true);
@@ -496,6 +529,16 @@ try {
   await viewport(p, 390, 844);
   check("Login fits mobile", await fits(p));
   await shot(p, "login-mobile");
+  await p.eval(`(() => {
+    const capture = navigator.mediaDevices.getDisplayMedia;
+    navigator.mediaDevices.getDisplayMedia = () => new Promise(resolve => { window.releaseCapture = resolve; });
+    window.captureFinished = import('/assets/screen.js').then(m => m.startShare()).then(()=>'started', e=>e.name);
+    window.finishCapture = async () => { const stream = await capture(); window.cancelledTrack = stream.getVideoTracks()[0]; window.releaseCapture(stream); };
+  })()`);
+  await p.waitFor('window.releaseCapture');
+  await p.eval('import("/assets/screen.js").then(m=>m.stopShare())');
+  await p.eval('window.finishCapture()');
+  check("A capture completing after cancellation is stopped", await p.eval('window.captureFinished.then(result=>result === "AbortError" && window.cancelledTrack.readyState === "ended")'));
   const t = await browser.newPage();
   await viewport(t, 1440, 900);
   await login(t, "GV001");

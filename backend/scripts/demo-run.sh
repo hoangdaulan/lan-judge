@@ -61,7 +61,7 @@ ST=$(login DEMO01 01012004)
 curl -sf -X POST "$API/sessions/$SESSION/join" -H "Authorization: Bearer $ST" >/dev/null
 
 step "2. SV và GV mở WebSocket"
-./bin/wsprobe -base "$BASE" -code DEMO01 -password 01012004 -session "$SESSION" -duration 10m >"$TMP/sv.log" &
+./bin/wsprobe -base "$BASE" -code DEMO01 -password 01012004 -session "$SESSION" -sharing true -duration 10m >"$TMP/sv.log" &
 WSPROBE_PASSWORD=$TEACHER_PASSWORD ./bin/wsprobe -base "$BASE" -code "$TEACHER_CODE" -session "$SESSION" -duration 10m >"$TMP/gv.log" &
 sleep 1
 

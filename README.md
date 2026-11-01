@@ -189,6 +189,7 @@ Quy tắc:
 - Kết quả so khớp theo từng token (bỏ qua khác biệt khoảng trắng/xuống dòng).
 - Chép xong, quay lại trang đề, bấm Quét test & chấm lại ở dòng của bài. Cột Test sẽ hiện số test đang dùng; nút Test cho xem danh sách.
 Nếu thư mục sai quy tắc, hệ thống báo lỗi và không thay đổi gì.
+Sau khi quét, bộ chấm dùng bản sao cố định của các file test. Sửa file gốc chưa làm thay đổi kết quả chấm cho tới khi bấm Quét test & chấm lại; hệ thống phát hiện cả thay đổi nội dung giữ nguyên tên file. Các bản sao nằm trong `data/problems/<id>/testsets/`, không chỉnh sửa trực tiếp và cần sao lưu cùng `data/`. Khi nâng cấp dữ liệu từ phiên bản chưa có bản sao, job đầu tiên sẽ tạo bản sao, tăng version và chấm lại các bài cũ của bài tập đó.
 3.5. Tạo phiên thi
 1. Trong trang đề, mục Phiên thi, bấm + Thêm phiên.
 2. Đặt Tên phiên (ví dụ Ca 1), giờ Bắt đầu và Kết thúc. Máy chủ dùng giờ của nó để mở/đóng nộp bài, nên hãy đảm bảo giờ máy chủ đúng.
@@ -231,9 +232,10 @@ Trang Hàng đợi chấm cung cấp số lượng bài đang chờ, đang chấ
 2. Đăng nhập: mã tài khoản là MSV, mật khẩu ban đầu là ngày sinh dạng ddmmyyyy (sinh ngày 05/09/2004 thì mật khẩu là 05092004). Nên đổi mật khẩu ở menu tài khoản → Đổi mật khẩu.
 3. Chọn phiên thi: trang Phiên thi liệt kê phiên Đang diễn ra / Sắp diễn ra / Đã kết thúc. Bấm Vào làm bài ở phiên đang diễn ra (lần sau là Tiếp tục làm bài).
 4. Chia sẻ màn hình (bắt buộc): bấm Chia sẻ toàn màn hình, chọn Toàn bộ màn hình (Entire screen, không chọn cửa sổ hay tab) rồi bấm Chia sẻ. Nếu dừng chia sẻ, trang làm bài bị khóa cho tới khi chia sẻ lại.
+   Nút nộp chỉ mở sau khi máy chủ xác nhận kết nối chia sẻ; mất kết nối hoặc tắt chia sẻ sẽ chặn nộp bài. Gia hạn đăng nhập tự động giữ nguyên video đang xem.
 5. Làm bài:
    - Chọn bài ở thanh bên hoặc dùng Bài trước / Bài tiếp theo. Đề bài hiện bên trái.
-   - Viết code C++17 trong ô soạn thảo (bản nháp tự lưu trên trình duyệt), hoặc bấm Tải lên .cpp để chọn file. Mã nguồn tối đa 64 KB, chỉ một file .cpp.
+   - Viết code C++17 trong ô soạn thảo (bản nháp tự lưu riêng theo tài khoản, phiên và bài trên trình duyệt), hoặc bấm Tải lên .cpp để chọn file. Bản nháp cũ chưa có thông tin tài khoản không được tự khôi phục. Mã nguồn tối đa 64 KB, chỉ một file .cpp.
    - Bấm Nộp bài hoặc nhấn Ctrl + Enter (⌘ + Enter trên Mac).
 6. Xem kết quả: kết quả hiện ngay khi chấm xong, không cần tải lại trang: Đang chờ → Đang chấm → ví dụ 15/15 AC. Ý nghĩa:
    - AC: đúng tất cả test. WA: sai đáp án. TLE: quá thời gian. MLE: quá bộ nhớ. RE: lỗi khi chạy. CE: lỗi biên dịch (có thông báo của trình biên dịch).
@@ -290,6 +292,7 @@ npm run build
 cd backend
 docker compose up -d --build --no-deps api
 Kiểm thử giao diện tự động tại gốc repo, sau npm ci, với Google Chrome/Chromium:
+npm run test:auth
 npm run test:ui
 Script tự tìm Chrome ở đường dẫn thông dụng trên macOS/Linux. Trong WSL2, cần cài Chrome bản Linux trong Ubuntu để chạy headless, theo hướng dẫn của Microsoft; Chrome đang cài trên Windows dùng cho thao tác web thủ công. Nếu dùng đường dẫn khác, truyền CHROME là file thực thi, ví dụ trên Mac:
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" npm run test:ui

@@ -9,6 +9,7 @@
 # ./data trên host, mặc định ./data). Mỗi lần chạy tạo dữ liệu mới (mã có hậu
 # tố thời gian) và không xóa dữ liệu cũ. Cần curl và python3.
 set -uo pipefail
+BACKEND_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 # Local test credentials (git-ignored), created with `make seed`.
 if [[ -f .smoke.env ]]; then
@@ -44,8 +45,28 @@ req() {
 
 # upload PATH FILE TOKEN  -> multipart field "file"
 upload() {
+	local share_pid=''
+	if [[ $1 =~ ^/sessions/([0-9]+)/problems/[0-9]+/submissions$ ]]; then
+		share_for "$3" "${BASH_REMATCH[1]}"
+		share_pid=$SHARE_PID
+	fi
 	STATUS=$(curl -s -o "$TMP/body" -w '%{http_code}' -X POST "$API$1" -H "Authorization: Bearer $3" -F "file=@$2")
 	BODY=$(cat "$TMP/body")
+	if [[ -n $share_pid ]]; then kill "$share_pid" 2>/dev/null || true; wait "$share_pid" 2>/dev/null || true; fi
+}
+
+# Automated protocol client: report sharing over an authenticated connection
+# and keep it open until the multipart request finishes. Browser capture is
+# exercised separately by screen-share.mjs.
+share_for() {
+	local i
+	WSPROBE_ACCESS_TOKEN="$1" "$BACKEND_DIR/bin/wsprobe" -base "$BASE" -session "$2" -sharing true -duration 1m >"$TMP/sharing.log" 2>&1 &
+	SHARE_PID=$!
+	for i in $(seq 1 100); do
+		grep -q '"type":"screen.state"' "$TMP/sharing.log" && return
+		kill -0 "$SHARE_PID" 2>/dev/null || return 0
+		sleep 0.05
+	done
 }
 
 # jget EXPR  -> evaluates a Python expression over the JSON body bound to d
@@ -381,6 +402,9 @@ section_submissions() {
 	req POST "/sessions/$RUNNING_ID/join" "" "$st"
 	req POST "/sessions/$RUNNING_ID/join" "" "$st2"
 
+	STATUS=$(curl -s -o "$TMP/body" -w '%{http_code}' -X POST "$API/sessions/$RUNNING_ID/problems/$pid/submissions" -H "Authorization: Bearer $st" -F "file=@$TMP/ok.cpp")
+	BODY=$(cat "$TMP/body")
+	expect "submit without an active sharing connection is rejected" 403 '"screen-sharing" in d["error"]'
 	upload "/sessions/$RUNNING_ID/problems/$pid/submissions" "$TMP/ok.cpp" "$st"
 	expect "submit accepted" 202 'd["result"]["status"] == "queued" and d["result"]["problem_version"] == d["problem_version"] and d["student_code"] == "'"$a"'"'
 	local sid
@@ -457,11 +481,16 @@ section_submissions() {
 		new_student "$code" "$tt" >/dev/null
 		tok=$(login "$code" "$SV_PASS")
 		req POST "/sessions/$RUNNING_ID/join" "" "$tok"
+		share_for "$tok" "$RUNNING_ID"
 		curl -s -o "$TMP/race-sub-$i" -w '%{http_code}' -H "Authorization: Bearer $tok" -F "file=@$TMP/ok.cpp" \
 			"$API/sessions/$RUNNING_ID/problems/$pid/submissions" >"$TMP/race-sub-code-$i" &
+		local submit_pid=$!
 		# Stagger finish by 0-70 ms so both orders occur across the trials.
 		(sleep "0.0$(((i - 1) % 8))" && curl -s -o /dev/null -X POST -H "Authorization: Bearer $tok" "$API/sessions/$RUNNING_ID/finish") &
-		wait
+		local finish_pid=$!
+		wait "$submit_pid" "$finish_pid"
+		kill "$SHARE_PID" 2>/dev/null || true
+		wait "$SHARE_PID" 2>/dev/null || true
 		local code_sub
 		code_sub=$(cat "$TMP/race-sub-code-$i")
 		req GET "/sessions/$RUNNING_ID/submissions?problem_id=$pid" "" "$tok"
@@ -533,6 +562,20 @@ ce|0/3 CE|int main(){ return }
 EOF
 	req GET "/submissions/$(jget 'd["id"]')" "" "$st"
 	expect "student sees compile output for CE" 200 '"error" in (d["result"]["compile_output"] or "")'
+
+	printf '0\n' >"$dir/1.out"
+	req GET "/problems/$pid/tests" "" "$tt"
+	expect "editing test contents without renaming is detected" 200 'not d["disk"]["in_sync"]'
+	upload "/sessions/$RUNNING_ID/problems/$pid/submissions" "$TMP/ac.cpp" "$st"
+	local snapshot_sub
+	snapshot_sub=$(jget 'd["id"]')
+	wait_result "$snapshot_sub" "$st"
+	expect "unpublished test edits do not change the active verdict" 200 'd["result"]["verdict"] == "AC" and d["problem_version"] == 2'
+	req POST "/problems/$pid/rejudge" "" "$tt"
+	wait_result "$snapshot_sub" "$st"
+	expect "rescan publishes edited content under the next version" 200 'd["result"]["verdict"] == "WA" and d["problem_version"] == 3'
+	printf '3\n' >"$dir/1.out"
+	req POST "/problems/$pid/rejudge" "" "$tt"
 }
 
 # result_of SUBMISSION_ID TOKEN -> "passed/total VERDICT@vVERSION run=ID" once judged
@@ -626,8 +669,8 @@ handshake() {
 
 section_ws() {
 	echo "== ws (WebSocket; needs the worker with the sandbox)"
-	local probe=./bin/wsprobe
-	[[ -x $probe ]] || sh scripts/build-java.sh || {
+	local probe=$BACKEND_DIR/bin/wsprobe
+	[[ -x $probe ]] || sh "$BACKEND_DIR/scripts/build-java.sh" || {
 		bad "build Java wsprobe"
 		return
 	}

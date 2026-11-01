@@ -19,6 +19,7 @@ const teacher = {
   fullname: "Nguyễn Minh Anh",
   role: "teacher",
 };
+const secondStudent = { id: 3, code: "SV002", fullname: "Trần Minh Khôi", role: "student" };
 const result = (status, verdict = null, id = 1) => ({
   run_id: id,
   problem_version: 1,
@@ -237,10 +238,12 @@ export async function startFixtures(port = 0) {
           return reply(401, { error: "invalid code or password" });
         const t =
           body.code?.startsWith("GV") || body.refresh_token === "teacher";
+        const second = body.code === "SV002" || body.refresh_token === "student2";
+        const token = t ? "teacher" : second ? "student2" : "student";
         return reply(200, {
-          user: t ? teacher : student,
-          access_token: t ? "teacher" : "student",
-          refresh_token: t ? "teacher" : "student",
+          user: t ? teacher : second ? secondStudent : student,
+          access_token: token,
+          refresh_token: token,
           access_expires_at: at(15),
         });
       }
@@ -292,6 +295,12 @@ export async function startFixtures(port = 0) {
         });
       if (/^\/sessions\/\d+$/.test(p)) {
         const session = sessions.find((s) => s.id === Number(p.split("/")[2]));
+        if (req.method === "PUT") {
+          Object.assign(session, body);
+          session.state = Date.now() < Date.parse(session.starts_at) ? "upcoming" : Date.now() < Date.parse(session.ends_at) ? "running" : "ended";
+          broadcast("session.updated", { session_id: session.id });
+          return reply(200, session);
+        }
         return reply(200, {
           session,
           participation: session.participation,
@@ -478,6 +487,8 @@ export async function startFixtures(port = 0) {
               ),
             );
           }
+          if (msg.type === "screen.state")
+            socket.write(frame(JSON.stringify({ type: "screen.state", data: { session_id: 1, sharing: msg.data.sharing } })));
         } catch {}
       }
     });

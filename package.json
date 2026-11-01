@@ -6,6 +6,7 @@
     "build": "node backend/scripts/build-ui.mjs",
     "dev": "node backend/scripts/dev-ui.mjs",
     "preview:ui": "node backend/scripts/ui-e2e/preview.mjs",
+    "test:auth": "node --test backend/scripts/test-auth.mjs",
     "test:ui": "node backend/scripts/ui-e2e/redesign.mjs"
   },
   "dependencies": {

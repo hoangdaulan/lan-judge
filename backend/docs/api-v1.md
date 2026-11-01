@@ -272,13 +272,15 @@ Nguyễn Văn An,B21DCCN001,05/09/2004
 - Problem: `{id, exam_id, code, title, statement, time_limit_ms, memory_limit_mb, version, test_dir, created_at, updated_at}`. `test_dir` là thư mục test tương đối với `DATA_DIR` (trên máy server: `./data/problems/<id>/tests`), được tạo khi tạo problem.
 - `PUT /problems/{id}` → `{"problem": ..., "rejudge_queued": bool, "requeued_submissions": n}`. Đổi `time_limit_ms` hoặc `memory_limit_mb` → `version + 1` và chấm lại mọi bài nộp (`rejudge_queued: true`); chỉ sửa chữ thì không.
 - `DELETE /problems/{id}` → 204 (xóa luôn các dòng `test_cases`; file test trên đĩa giữ nguyên); 409 nếu đã có bài nộp.
-- `GET /problems/{id}/tests` → `PagedList<{id, input, output}>` kèm `test_dir` theo thứ tự chấm và `disk: {tests, error?, in_sync}` — trạng thái thư mục test trên đĩa (chỉ đọc): số cặp hợp lệ, lý do quét sẽ lỗi (thiếu `.out`...), và có trùng danh sách test đã đăng ký không (không so nội dung). `in_sync = false` nghĩa là đã chép file nhưng chưa bấm chấm lại.
+- `GET /problems/{id}/tests` → `PagedList<{id, input, output}>` kèm `test_dir` theo thứ tự chấm và `disk: {tests, error?, in_sync}`. `input`/`output` trỏ tới bản sao đang dùng trong `problems/<id>/testsets/<uuid>/`. `in_sync` đối chiếu cả tên và SHA-256 nội dung với thư mục soạn test; sửa nội dung giữ nguyên tên cũng làm `in_sync = false`.
 - `POST /problems/{id}/rejudge` → quét `test_dir`:
   - mỗi `N.in` phải có `N.out` và ngược lại; file rỗng hợp lệ; file khác đuôi và file ẩn bị bỏ qua; symlink/thư mục con bị từ chối; tối đa 500 test;
   - thứ tự: tên là số thì theo số (`2` trước `10`), còn lại theo tên;
   - lỗi file → 409, không đổi gì;
   - thành công → thay `test_cases`, `version + 1`, chấm lại mọi bài nộp của problem ở mọi phiên → `{"problem": ..., "tests": [{name, input, output, input_size, output_size}], "rejudge_queued": true, "requeued_submissions": n}`.
   - Chấm lại (cả khi đổi limit): trong cùng transaction, mọi run/job hiện hành của problem chuyển `obsolete` (worker đang chấm version cũ bị loại kết quả), tạo run + job `queued` ở version mới cho mọi bài nộp, mọi phiên. Trong lúc chờ, `result` của bài nộp là run mới `queued`; kết quả cũ không còn là hiện hành (AC cũ có thể mất).
+  - Trước khi công bố version, server sao chép và kiểm tra checksum toàn bộ test. Job dùng bản sao này; sửa file trong `tests/` chỉ có hiệu lực sau lần quét tiếp theo. Nếu file thay đổi khi sao chép, lần quét bị từ chối. Các bản sao cũ được giữ lại, cần sao lưu cùng `data/` và không chỉnh sửa trực tiếp.
+  - Dữ liệu cũ còn trỏ trực tiếp vào `tests/` được chuyển sang bản sao khi worker nhận job đầu tiên. Server tăng version và xếp hàng chấm lại mọi bài nộp của problem để thay kết quả cũ chưa có bản sao đáng tin cậy. Có thể chủ động bấm quét/chấm lại sau khi nâng cấp.
 - `GET /sessions/{id}/problems/{pid}` (S) → `{id, code, title, statement, time_limit_ms, memory_limit_mb}`. 403 trước `starts_at` hoặc khi chưa tham gia phiên; 404 nếu problem không thuộc đề của phiên. Sau khi phiên kết thúc vẫn xem được.
 
 ## Chi tiết Nộp bài
@@ -290,7 +292,8 @@ Nguyễn Văn An,B21DCCN001,05/09/2004
 - `received_at` = giờ server khi đã nhận đủ file.
 - Trong một transaction (khóa problem → phiên → participant): problem thuộc đề của phiên (404), đã join (409), chưa `finished` (409), `starts_at <= received_at < ends_at` (409), problem có test (409). Tạo submission + run `queued` (version hiện tại) + job `queued`, commit rồi trả **202**.
 - Nộp và finish cùng lúc: thao tác nào giữ khóa participant và commit trước thì thắng.
-- Lỗi: 400 (thiếu `file`, sai đuôi, rỗng), 413 (> 64 KB), 404, 409. Bị từ chối theo quy tắc → file vừa lưu bị xóa; lỗi DB khác → file giữ lại chờ dọn.
+- Khi nhận bài, phải có kết nối WebSocket còn mở, xác thực chưa hết hạn của đúng sinh viên, đã subscribe đúng phiên và được xác nhận `screen.state: {sharing:true}`. Thiếu kết nối này trả 403; tắt chia sẻ, đóng socket hoặc đổi phiên làm mất điều kiện nộp bài.
+- Lỗi: 400 (thiếu `file`, sai đuôi, rỗng), 403 (thiếu kết nối chia sẻ), 413 (> 64 KB), 404, 409. Bị từ chối theo quy tắc → file vừa lưu bị xóa; lỗi DB khác → file giữ lại chờ dọn.
 
 Đối tượng bài nộp:
 
@@ -370,6 +373,8 @@ Server → client:
 |---|---|---|
 | `auth.ok` | `{user_id, role, expires_at}` | người vừa xác thực |
 | `subscribed` | `{session_id}` | người vừa subscribe |
+| `session.updated` | `{session_id}` | các client của phiên khi giáo viên sửa giờ/tên hoặc trạng thái tham gia thay đổi; tải lại `GET /sessions/{id}` |
+| `screen.state` | `{session_id, sharing}` | xác nhận trạng thái chia sẻ cho SV vừa gửi `screen.state` |
 | `run.updated` | bài nộp + `result` hiện hành (giống REST) | SV chủ bài (mọi tab); GV chủ đề đang subscribe phiên đó |
 | `summary.updated` | như `GET /sessions/{id}/summary` | GV đang subscribe phiên (gộp ~300 ms, làm mới mỗi 5 s) |
 | `announcement` | `{id, session_id, text, created_at}` | mọi client đang subscribe phiên |
@@ -385,7 +390,7 @@ Vòng đời một bài: nộp (REST 202) → `run.updated` `queued` → `judgin
 
 - **Mã đóng:** `4001` xác thực sai / không gửi auth kịp / token hết hạn; `1008` client đọc quá chậm (bộ đệm đầy) hoặc quá 8 kết nối/tài khoản; `1000` bình thường.
 - **Ping/pong** mỗi 20 s; không có pong → server đóng (phát hiện mất mạng).
-- **Nối lại:** client mở lại kết nối, `auth` + `subscribe`, rồi tải trạng thái bằng REST (`/submissions/{id}`, `/sessions/{id}/summary`, `/announcements`). Server không gửi lại sự kiện đã lỡ.
+- **Nối lại:** client mở lại kết nối, `auth` + `subscribe`, rồi tải trạng thái phiên, bài nộp, bảng điểm và thông báo bằng REST. Server không gửi lại sự kiện đã lỡ. Workspace tải lại metadata mỗi 15 giây làm dự phòng. Gia hạn JWT trên cùng socket và subscribe lại cùng phiên giữ nguyên trạng thái chia sẻ và các view.
 ### Chia sẻ màn hình (phase 16)
 
 SV trong phiên đang mở phải chia sẻ **toàn bộ màn hình** mới làm bài được (giao diện khóa). GV của phiên thấy ai đang chia sẻ và xem trực tiếp màn hình một SV. Video đi **ngang hàng qua LAN** bằng WebRTC (`iceServers: []`, không STUN/TURN, không qua server); server chỉ giữ trạng thái và chuyển tín hiệu.
@@ -394,7 +399,7 @@ Client → server (thêm):
 
 | type | data | Ai gửi / kiểm tra |
 |---|---|---|
-| `screen.state` | `{sharing: bool}` | SV đã subscribe phiên; gửi lại sau mỗi `subscribed` (server quên khi nối lại/đổi phiên) |
+| `screen.state` | `{sharing: bool}` | SV đã subscribe phiên; `true` yêu cầu đã join, chưa finish, phiên đang mở. Gửi lại sau mỗi `subscribed`; giao diện chờ xác nhận từ server trước khi mở nộp bài |
 | `screen.view` | `{student_id}` | GV đã subscribe phiên của mình; SV phải đang chia sẻ trong **cùng phiên**; tối đa 15 view/kết nối GV (lưới 5×3) |
 | `webrtc.signal` | `{view_id, kind: "offer"\|"answer"\|"ice", payload}` | chỉ hai kết nối của view; server chuyển nguyên văn cho đầu kia |
 | `webrtc.signal` | `{view_id, kind: "quality", payload: {fps, bitrate}}` | chỉ GV của view; SV giới hạn fps (khung/giây) và bitrate (bit/s) bộ mã hóa cho view đó, giữ nguyên độ phân giải |
@@ -404,7 +409,7 @@ Luồng: GV `screen.view` → server tạo `view_id`, gửi `screen.view` cho k�
 
 - Trình duyệt chỉ cho `getDisplayMedia` trong *secure context* → giao diện chạy trên HTTPS `https://<IP>:8443` (chứng chỉ tự ký, server tự tạo trong `DATA_DIR/tls`, phủ `localhost` + `TLS_HOSTS`). `http://<IP>:8080/` từ máy khác chuyển hướng sang HTTPS; HTTP vẫn dùng cho script.
 - Giới hạn message từ client: 64 KB (SDP vài KB).
-- Server **không** chặn nộp bài khi SV tắt chia sẻ (khóa ở giao diện); GV thấy trạng thái trong tab "Màn hình SV".
+- Server chặn nộp bài nếu thiếu kết nối chia sẻ hợp lệ. Trạng thái do client khai báo, còn video truyền ngang hàng; đây là kiểm tra trạng thái giám sát, không chứng minh được client không bị chỉnh sửa. GV vẫn cần theo dõi video thực tế.
 
 - **Nguồn sự kiện:** mọi chỗ đổi trạng thái run gọi `pg_notify('judge_events', ...)` trong cùng transaction (chỉ gửi sau COMMIT); API giữ một kết nối `LISTEN`, nạp lại trạng thái từ DB rồi đẩy. Mất kết nối `LISTEN` → tự nối lại (backoff 1–10 s) và gửi `resync`.
 

@@ -4,6 +4,7 @@
 // rate by grid size (resolution stays full so code remains readable). Video goes peer to peer over the LAN
 // (WebRTC without STUN/TURN); signaling uses the WebSocket (live.js).
 import * as live from './live.js';
+import { auth, onAuthChange } from './api.js';
 import { html, mount, toast } from './ui.js';
 
 const RTC_CONFIG = { iceServers: [] }; // same LAN: host candidates only
@@ -11,14 +12,22 @@ const RTC_CONFIG = { iceServers: [] }; // same LAN: host candidates only
 // ---------------------------------------------------------------- student
 
 let stream = null;
+let captureVersion = 0;
+let sharingUser = auth.user?.id;
+let confirmed = false;
+let subscribedSession = null;
 const peers = new Map(); // view_id -> RTCPeerConnection (student side)
 const shareListeners = new Set();
 
-export const isSharing = () => !!stream;
+export const isSharing = () => !!stream && confirmed;
 export function onShareChange(fn) { shareListeners.add(fn); return () => shareListeners.delete(fn); }
+function notifySharing() {
+  for (const fn of shareListeners) { try { fn(isSharing()); } catch (e) { console.error(e); } }
+}
 function changed() {
+  confirmed = false;
   live.send('screen.state', { sharing: !!stream });
-  for (const fn of shareListeners) { try { fn(!!stream); } catch (e) { console.error(e); } }
+  notifySharing();
 }
 
 export function screenSupported() {
@@ -28,6 +37,7 @@ export function screenSupported() {
 // startShare must run from a click (browsers require a user gesture). Only
 // the whole screen is accepted, not a window or a tab.
 export async function startShare() {
+  const version = ++captureVersion;
   const s = await navigator.mediaDevices.getDisplayMedia({
     video: { displaySurface: 'monitor', frameRate: { max: 15 } },
     audio: false,
@@ -35,6 +45,10 @@ export async function startShare() {
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'exclude',
   });
+  if (version !== captureVersion) {
+    s.getTracks().forEach(t => t.stop());
+    throw new DOMException('Screen sharing was cancelled', 'AbortError');
+  }
   const track = s.getVideoTracks()[0];
   const surface = track && track.getSettings().displaySurface;
   // Browsers that do not report the surface (older Firefox) are trusted.
@@ -56,6 +70,7 @@ export async function startShare() {
 }
 
 export function stopShare(notify = true) {
+  captureVersion++;
   if (!stream) return;
   const s = stream;
   stream = null;
@@ -64,6 +79,11 @@ export function stopShare(notify = true) {
   if (notify) changed();
 }
 
+onAuthChange(() => {
+  if (sharingUser !== auth.user?.id) stopShare();
+  sharingUser = auth.user?.id;
+});
+
 function closePeers() {
   for (const [id, pc] of peers) { pc.close(); live.send('screen.stop', { view_id: id }); }
   peers.clear();
@@ -71,7 +91,19 @@ function closePeers() {
 
 // The server forgets sharing state when the socket reconnects or the
 // session changes; report it again on every subscription.
-live.on('subscribed', () => { if (stream) live.send('screen.state', { sharing: true }); });
+live.on('subscribed', ({ session_id }) => {
+  if (subscribedSession !== session_id) { confirmed = false; notifySharing(); }
+  subscribedSession = session_id;
+  if (stream) live.send('screen.state', { sharing: true });
+});
+live.on('screen.state', ({ session_id, sharing }) => {
+  if (session_id !== subscribedSession) return;
+  confirmed = !!stream && sharing === true;
+  notifySharing();
+});
+live.on('connection', ({ connected }) => {
+  if (!connected) { confirmed = false; notifySharing(); }
+});
 
 // A teacher wants to watch: offer the shared screen to that viewer.
 live.on('screen.view', async ({ view_id: id }) => {

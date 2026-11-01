@@ -8,9 +8,15 @@ import java.time.*;
 import java.util.*;
 
 public final class Submissions {
+  @FunctionalInterface
+  public interface ScreenGate {
+    boolean sharing(Auth.Principal student, long session);
+  }
+
   private final Db db;
   private final Exams exams;
   private final Storage storage;
+  private volatile ScreenGate screenGate = (p, session) -> false;
   static final String SELECT =
       """
 SELECT s.id,ep.exam_session_id AS session_id,e.teacher_id,s.problem_id,pr.code AS problem_code,pr.version AS problem_version,
@@ -26,6 +32,10 @@ LEFT JOIN judge_runs r ON r.submission_id=s.id AND r.problem_version=pr.version 
     this.db = db;
     this.exams = exams;
     this.storage = storage;
+  }
+
+  public void screenGate(ScreenGate gate) {
+    screenGate = Objects.requireNonNull(gate);
   }
 
   public Map<String, Object> raw(long id) {
@@ -104,6 +114,7 @@ LEFT JOIN judge_runs r ON r.submission_id=s.id AND r.problem_version=pr.version 
     if (content.length == 0 || !filename.toLowerCase(Locale.ROOT).endsWith(".cpp"))
       throw ApiError.bad("a non-empty .cpp file is required");
     Instant received = Instant.now();
+    boolean sharing = screenGate.sharing(p, session);
     String path = storage.save(content, received);
     try {
       long id =
@@ -133,6 +144,8 @@ LEFT JOIN judge_runs r ON r.submission_id=s.id AND r.problem_version=pr.version 
                   throw ApiError.conflict("the session has not started");
                 if (!received.isBefore((Instant) s.get("ends_at")))
                   throw ApiError.conflict("the session has ended");
+                if (!sharing)
+                  throw new ApiError(403, "an active screen-sharing connection is required");
                 if (num(
                         db.one("SELECT count(*) AS n FROM test_cases WHERE problem_id=$1", problem),
                         "n")

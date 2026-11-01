@@ -63,6 +63,7 @@ class DatabaseTest {
     var storage = new Storage(temp);
     problems = new Problems(db, exams, storage);
     subs = new Submissions(db, exams, storage);
+    subs.screenGate((p, session) -> true);
     students = new Students(db, auth);
     queue = new JudgeQueue(db, cfg);
     teacher =
@@ -149,6 +150,148 @@ class DatabaseTest {
       o.Tests.add(t);
     }
     return o;
+  }
+
+  @Test
+  void publishedTestsStayStableUntilExplicitRescan() throws Exception {
+    var f = fixture();
+    long id = submit(f);
+    var first = queue.claim("w1");
+    assertEquals("3", Files.readString(temp.resolve(first.Tests.get(0).OutputPath)));
+    Files.writeString(temp.resolve(Problems.testDir(f.problem)).resolve("1.out"), "4");
+    assertEquals(false, problems.disk(f.problem, problems.tests(f.problem)).get("in_sync"));
+    assertTrue(queue.complete(first, ac(first)));
+    submit(f);
+    var second = queue.claim("w2");
+    assertEquals(first.ProblemVersion, second.ProblemVersion);
+    assertEquals(first.Tests.get(0).OutputPath, second.Tests.get(0).OutputPath);
+    assertEquals("3", Files.readString(temp.resolve(second.Tests.get(0).OutputPath)));
+    problems.rejudge(teacher, f.problem);
+    assertFalse(queue.complete(second, ac(second)));
+    var next = queue.claim("w3");
+    assertEquals(first.ProblemVersion + 1, next.ProblemVersion);
+    assertEquals("4", Files.readString(temp.resolve(next.Tests.get(0).OutputPath)));
+    assertEquals("judging", subs.raw(id).get("status"));
+  }
+
+  @Test
+  void legacyTestPathsAreFrozenBeforeAJobUsesThem() throws Exception {
+    var f = fixture();
+    long previous = submit(f);
+    var graded = queue.claim("old-worker");
+    assertTrue(queue.complete(graded, ac(graded)));
+    String input = Problems.testDir(f.problem) + "/1.in";
+    String output = Problems.testDir(f.problem) + "/1.out";
+    long testId = num(problems.tests(f.problem).get(0), "id");
+    db.update("UPDATE test_cases SET input=$2,output=$3 WHERE id=$1", testId, input, output);
+    submit(f);
+    assertNull(queue.claim("legacy-upgrade"));
+    assertNull(subs.raw(previous).get("verdict"));
+    var first = queue.claim("legacy-1");
+    assertEquals(graded.ProblemVersion + 1, first.ProblemVersion);
+    assertEquals(testId, first.Tests.get(0).ID);
+    assertNotEquals(output, first.Tests.get(0).OutputPath);
+    Files.writeString(temp.resolve(output), "new answer");
+    submit(f);
+    var second = queue.claim("legacy-2");
+    assertEquals(first.Tests.get(0).OutputPath, second.Tests.get(0).OutputPath);
+    assertEquals("3", Files.readString(temp.resolve(second.Tests.get(0).OutputPath)));
+  }
+
+  @Test
+  void missingLegacyFilesRetryThenReportAnErrorInsteadOfStayingQueuedForever() throws Exception {
+    var f = fixture();
+    String input = Problems.testDir(f.problem) + "/1.in";
+    String output = Problems.testDir(f.problem) + "/1.out";
+    db.update("UPDATE test_cases SET input=$2,output=$3 WHERE problem_id=$1", f.problem, input, output);
+    Files.delete(temp.resolve(output));
+    long sub = submit(f);
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      assertNull(queue.claim("legacy-missing"));
+      db.update("UPDATE judge_jobs SET available_at=clock_timestamp()-interval '1 second' WHERE status='queued'");
+    }
+    assertEquals("system_error", subs.raw(sub).get("status"));
+    assertTrue(str(subs.raw(sub), "system_error").contains("cannot publish legacy tests"));
+  }
+
+  @Test
+  void sharingIsRequiredAndSurvivesReauthenticationInTheSameSession() throws Exception {
+    var f = fixture();
+    var board = new Board(db, exams, subs);
+    try (var lan = new Lan(cfg, json);
+        var realtime = new Realtime(auth, exams, subs, board, db, lan, json)) {
+      assertEquals(403, assertThrows(ApiError.class, () -> submit(f)).status);
+      var studentSocket = new SocketProbe(realtime, "student");
+      var teacherSocket = new SocketProbe(realtime, "teacher");
+      String studentToken = str(auth.login("SV", "05092004"), "access_token");
+      studentSocket.send("auth", map("token", studentToken));
+      studentSocket.send("subscribe", map("session_id", f.session));
+      assertEquals(403, assertThrows(ApiError.class, () -> submit(f)).status);
+      studentSocket.send("screen.state", map("sharing", true));
+      studentSocket.await("screen.state");
+      assertTrue(realtime.sharing(student, f.session));
+      assertFalse(realtime.sharing(student, f.session + 1));
+      assertFalse(realtime.sharing(teacher, f.session));
+      teacherSocket.send("auth", map("token", str(auth.login("GV", "secret"), "access_token")));
+      teacherSocket.send("subscribe", map("session_id", f.session));
+      teacherSocket.send("screen.view", map("student_id", student.id()));
+      teacherSocket.await("screen.view.started");
+      submit(f);
+      studentSocket.send("auth", map("token", studentToken));
+      studentSocket.send("subscribe", map("session_id", f.session));
+      studentSocket.await("subscribed");
+      assertTrue(realtime.sharing(student, f.session));
+      assertFalse(studentSocket.messages.stream().anyMatch(m -> m.path("type").asText().equals("screen.stop")));
+      studentSocket.send("screen.state", map("sharing", false));
+      assertEquals(403, assertThrows(ApiError.class, () -> submit(f)).status);
+      studentSocket.send("screen.state", map("sharing", true));
+      studentSocket.close();
+      assertEquals(403, assertThrows(ApiError.class, () -> submit(f)).status);
+      teacherSocket.close();
+    }
+  }
+
+  private final class SocketProbe {
+    final List<JsonNode> messages = new CopyOnWriteArrayList<>();
+    final Realtime realtime;
+    final org.springframework.web.socket.WebSocketSession ws;
+    volatile boolean open = true;
+
+    SocketProbe(Realtime realtime, String id) {
+      this.realtime = realtime;
+      ws = (org.springframework.web.socket.WebSocketSession) java.lang.reflect.Proxy.newProxyInstance(
+          getClass().getClassLoader(), new Class<?>[] {org.springframework.web.socket.WebSocketSession.class},
+          (proxy, method, args) -> switch (method.getName()) {
+            case "getId" -> id;
+            case "isOpen" -> open;
+            case "close" -> { open = false; yield null; }
+            case "sendMessage" -> {
+              if (args[0] instanceof org.springframework.web.socket.TextMessage text)
+                messages.add(json.readTree(text.getPayload()));
+              yield null;
+            }
+            default -> null;
+          });
+      realtime.afterConnectionEstablished(ws);
+    }
+
+    void send(String type, Object data) throws Exception {
+      realtime.handleTextMessage(ws, new org.springframework.web.socket.TextMessage(
+          json.writeValueAsString(map("type", type, "data", data))));
+    }
+
+    JsonNode await(String type) throws Exception {
+      for (int i = 0; i < 100; i++) {
+        for (var m : messages) if (m.path("type").asText().equals(type)) return m;
+        Thread.sleep(10);
+      }
+      throw new AssertionError("missing websocket message: " + type);
+    }
+
+    void close() {
+      open = false;
+      realtime.afterConnectionClosed(ws, org.springframework.web.socket.CloseStatus.NORMAL);
+    }
   }
 
   @Test

@@ -173,6 +173,7 @@ public final class Problems {
         var pair = pairs.computeIfAbsent(base, k -> map("name", k));
         pair.put(input ? "input" : "output", rel + "/" + name);
         pair.put(input ? "input_size" : "output_size", Files.size(path));
+        pair.put(input ? "input_sha256" : "output_sha256", TestSnapshots.hash(path));
       }
     }
     for (var pair : pairs.values()) {
@@ -192,12 +193,17 @@ public final class Problems {
       throws IOException {
     try {
       var files = scan(id);
-      Set<String> paths = new HashSet<>();
-      for (var t : registered) paths.add(t.get("input") + "\0" + t.get("output"));
-      boolean sync =
-          files.size() == registered.size()
-              && files.stream()
-                  .allMatch(t -> paths.contains(t.get("input") + "\0" + t.get("output")));
+      Map<String, Map<String, Object>> current = new HashMap<>();
+      for (var t : registered) current.put(Path.of(str(t, "input")).getFileName().toString(), t);
+      boolean sync = files.size() == registered.size();
+      for (var file : files) {
+        var saved = current.get(Path.of(str(file, "input")).getFileName().toString());
+        if (saved == null || !TestSnapshots.published(id, saved)) { sync = false; break; }
+        for (String key : List.of("input", "output"))
+          if (!Path.of(str(file, key)).getFileName().equals(Path.of(str(saved, key)).getFileName())
+              || !str(file, key + "_sha256").equals(TestSnapshots.hash(storage.resolve(str(saved, key)))))
+            sync = false;
+      }
       return map("tests", files.size(), "in_sync", sync);
     } catch (ApiError e) {
       return map("tests", 0, "error", e.getMessage(), "in_sync", false);
@@ -207,11 +213,18 @@ public final class Problems {
   public Map<String, Object> rejudge(Auth.Principal p, long id) throws IOException {
     owned(p, id);
     var files = scan(id);
-    return db.tx(
+    try {
+      return db.tx(
         () -> {
           db.need("problem", "SELECT id FROM problems WHERE id=$1 FOR UPDATE", id);
+          List<Map<String, Object>> published;
+          try {
+            published = new TestSnapshots(storage).publish(id, files);
+          } catch (IOException e) {
+            throw new UncheckedIOException(e);
+          }
           db.update("DELETE FROM test_cases WHERE problem_id=$1", id);
-          for (var t : files)
+          for (var t : published)
             db.update(
                 "INSERT INTO test_cases(problem_id,input,output) VALUES($1,$2,$3)",
                 id,
@@ -234,6 +247,9 @@ public final class Problems {
               "requeued_submissions",
               n);
         });
+    } catch (UncheckedIOException e) {
+      throw e.getCause();
+    }
   }
 
   // Caller holds the problem lock; always lock runs before jobs, ascending.

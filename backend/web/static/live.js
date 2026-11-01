@@ -15,7 +15,9 @@ let lostConnection = false; // set when an open socket drops
 const el = () => document.getElementById('conn');
 
 function setStatus(on) {
+  const changed = connected !== on;
   connected = on;
+  if (changed) dispatch('connection', { connected: on });
   const e = el();
   if (!e) return;
   e.hidden = !wanted;
@@ -49,6 +51,7 @@ export function stop() {
   wanted = false;
   sessionId = null;
   clearTimeout(retryTimer);
+  authed = false;
   if (ws) { const w = ws; ws = null; w.close(1000); }
   setStatus(false);
 }
@@ -69,6 +72,7 @@ async function connect() {
     try { await refresh(); } catch { connecting = false; return retry(); }
     connecting = false;
   }
+  if (!wanted || ws) return;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const sock = new WebSocket(`${proto}//${location.host}/api/v1/ws`);
   ws = sock;
@@ -78,9 +82,10 @@ async function connect() {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.type === 'auth.ok') {
+      const firstAuth = !authed;
       authed = true;
       backoff = 1000;
-      if (sessionId) send('subscribe', { session_id: sessionId });
+      if (firstAuth && sessionId) send('subscribe', { session_id: sessionId });
       return;
     }
     if (msg.type === 'subscribed') {

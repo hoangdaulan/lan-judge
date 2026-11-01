@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { get, post, upload, request } from "../static/api.js";
+import { auth, get, post, upload, request } from "../static/api.js";
 import * as live from "../static/live.js";
 import * as screen from "../static/screen.js";
 import {
@@ -32,6 +32,14 @@ export function Room({ ids: [sid, pidParam] }) {
     [error, setError] = useState(null),
     [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((x) => x + 1), []);
+  useEffect(() => {
+    const timer = setInterval(reload, 15000);
+    const offSync = live.on("resync", reload);
+    const offSession = live.on("session.updated", (data) => {
+      if (String(data.session_id) === String(sid)) reload();
+    });
+    return () => { clearInterval(timer); offSync(); offSession(); };
+  }, [sid, reload]);
   useEffect(() => {
     let active = true;
     (async () => {
@@ -68,7 +76,7 @@ export function Room({ ids: [sid, pidParam] }) {
   const pid = pidParam || String(info.problems?.[0]?.id || "");
   return (
     <Workspace
-      key={`${sid}.${pid}.${info.participation?.status}.${info.session.state}`}
+      key={`${auth.user.id}.${sid}.${pid}.${info.participation?.status}.${info.session.state}`}
       sid={sid}
       pid={pid}
       info={info}
@@ -109,7 +117,7 @@ function Workspace({ sid, pid, info, reload }) {
   const [split, setSplit] = useStored("lanjudge.pane.description", 42),
     [resultSize, setResultSize] = useStored("lanjudge.pane.results", 31),
     [fontSize, setFontSize] = useStored("lanjudge.editor.fontSize", 14);
-  const draftKey = `lanjudge.draft.${sid}.${pid}`;
+  const draftKey = `lanjudge.draft.${auth.user.id}.${sid}.${pid}`;
   const [source, setSource] = useState(() => {
       try {
         return localStorage.getItem(draftKey) || "";
