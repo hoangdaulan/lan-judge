@@ -1,8 +1,3 @@
-# LAN deployment: browsers open https://<server-ip>:8443 (self-signed
-# certificate; http://<server-ip>:8080 redirects there). Plain HTTP on 8080
-# stays for scripts and tools.
-# Copy .env.example to .env and set real secrets before `make up`.
-
 services:
   postgres:
     image: postgres:16
@@ -38,13 +33,9 @@ services:
       HTTP_ADDR: ":8080"
       HTTPS_ADDR: ":8443"
       HTTPS_PUBLIC_PORT: ${API_HTTPS_PORT:-8443}
-      # The server's LAN IP(s) for the certificate, e.g. 192.168.1.9.
       TLS_HOSTS: ${TLS_HOSTS:-}
       DATA_DIR: /data
       WS_ALLOWED_ORIGINS: ${WS_ALLOWED_ORIGINS:-}
-      # Judge workers connect here (TCP dispatch protocol,
-      # docs/net-protocols.md §1). Not published: the worker reaches it as
-      # api:7070 on the db network.
       DISPATCH_ADDR: ":7070"
       DISPATCH_TOKEN: ${DISPATCH_TOKEN:-}
       # UDP discovery / multicast announcements (docs/net-protocols.md
@@ -53,17 +44,11 @@ services:
       DISCOVERY_PORT: ${DISCOVERY_PORT:-0}
       ADVERTISE_HOST: ${ADVERTISE_HOST:-}
       ANNOUNCE_MULTICAST_ADDR: ${ANNOUNCE_MULTICAST_ADDR:-}
-    # Runs as the owner of ./data so files the teacher edits on the host stay
-    # readable/writable by the containers.
     user: "${APP_UID:-10001}:${APP_GID:-10001}"
     ports:
-      # Bound on all interfaces so LAN clients can connect.
       - "0.0.0.0:${API_PORT:-8080}:8080"
-      # HTTPS for browsers (screen sharing needs a secure context).
       - "0.0.0.0:${API_HTTPS_PORT:-8443}:8443"
     volumes:
-      # Bind mount: teachers edit test .in/.out files directly under ./data on
-      # the server, then press "rejudge" (BACKEND_CONTEXT.md §17).
       - ./data:/data
     networks: [db, web]
 
@@ -98,7 +83,6 @@ services:
     security_opt:
       - no-new-privileges:true
     volumes:
-      # Same directory as api: api writes sources, worker reads sources/tests.
       - ./data:/data
     # Only the internal `db` network: the worker can reach PostgreSQL but has
     # no route to the LAN/Internet; student programs have no network at all.
